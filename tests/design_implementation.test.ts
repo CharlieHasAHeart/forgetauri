@@ -22,14 +22,10 @@ describe("tool_design_implementation", () => {
   test("returns validated implementation design", async () => {
     const provider = new MockProvider([
       JSON.stringify({
-        version: "v1",
-        rust: {
-          layering: "commands_service_repo",
-          services: [{ name: "lint_service", responsibilities: ["run lint"], usesTables: ["lint_runs"] }],
-          repos: [{ name: "lint_repo", table: "lint_runs", operations: ["insert", "list"] }],
-          errorModel: { pattern: "thiserror+ApiResponse", errorCodes: ["LINT_FAILED"] }
-        },
-        frontend: { apiPattern: "invoke_wrapper+typed_meta", stateManagement: "local", validation: "simple" }
+        services: [{ name: "lint_service", responsibilities: ["run lint"], usesTables: ["lint_runs"] }],
+        repos: [{ name: "lint_repo", table: "lint_runs", operations: ["insert", "list"] }],
+        errorCodes: ["LINT_FAILED"],
+        frontend: { stateManagement: "local", validation: "simple" }
       })
     ]);
 
@@ -44,8 +40,9 @@ describe("tool_design_implementation", () => {
     );
 
     expect(result.ok).toBe(true);
-    const data = result.data as { impl: { rust: { services: Array<{ name: string }> } } };
-    expect(data.impl.rust.services[0]?.name).toBe("lint_service");
+    const data = result.data as { impl: { rust: { services: Array<{ name: string }>; errorModel: { errorCodes: string[] } } } };
+    expect(data.impl.rust.services.map((service) => service.name)).toContain("lint_service");
+    expect(data.impl.rust.errorModel.errorCodes).toContain("LINT_FAILED");
   });
 
   test("falls back to deterministic implementation when LLM output is invalid", async () => {

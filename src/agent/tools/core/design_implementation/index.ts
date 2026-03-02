@@ -17,6 +17,37 @@ const outputSchema = z.object({
   attempts: z.number().int().positive()
 });
 
+const implementationDeltaSchema = z
+  .object({
+    services: z
+      .array(
+        z.object({
+          command: z.string().optional(),
+          name: z.string().optional(),
+          responsibilities: z.array(z.string()).optional(),
+          usesTables: z.array(z.string()).optional()
+        })
+      )
+      .optional(),
+    repos: z
+      .array(
+        z.object({
+          table: z.string().optional(),
+          name: z.string().optional(),
+          operations: z.array(z.string()).optional()
+        })
+      )
+      .optional(),
+    errorCodes: z.array(z.string()).optional(),
+    frontend: z
+      .object({
+        stateManagement: z.enum(["local", "stores"]).optional(),
+        validation: z.enum(["zod", "simple"]).optional()
+      })
+      .optional()
+  })
+  .passthrough();
+
 const toSnakeCase = (value: string, fallback: string): string => {
   const normalized = value
     .trim()
@@ -66,6 +97,71 @@ const buildSeedImplementation = (
   };
 };
 
+const uniqueStrings = (values: string[]): string[] => Array.from(new Set(values.filter((value) => value.length > 0)));
+
+const mergeImplementationDelta = (args: {
+  seed: ImplementationDesignV1;
+  delta: z.infer<typeof implementationDeltaSchema>;
+  contract: z.infer<typeof contractForImplementationV1Schema>;
+}): ImplementationDesignV1 => {
+  const tableSet = new Set(args.contract.dataModel.tables.map((table) => table.name));
+  const fallbackTable = args.contract.dataModel.tables[0]?.name ?? "app_data";
+  const commandSet = new Set(args.contract.commands.map((command) => command.name));
+
+  const serviceMap = new Map(args.seed.rust.services.map((service) => [service.name, service]));
+  for (const [idx, patch] of (args.delta.services ?? []).entries()) {
+    const byCommand = patch.command && commandSet.has(patch.command) ? patch.command : undefined;
+    const defaultName = byCommand ? `${byCommand}_service` : `service_${idx + 1}`;
+    const name = toSnakeCase(patch.name ?? defaultName, `service_${idx + 1}`);
+    const previous = serviceMap.get(name);
+    const normalizedTables = uniqueStrings((patch.usesTables ?? []).map((table) => (tableSet.has(table) ? table : fallbackTable)));
+
+    serviceMap.set(name, {
+      name,
+      responsibilities:
+        patch.responsibilities && patch.responsibilities.length > 0
+          ? uniqueStrings(patch.responsibilities.map((item) => item.trim()).filter((item) => item.length > 0))
+          : previous?.responsibilities ?? [byCommand ? `Handle ${byCommand}` : `Handle ${name}`],
+      usesTables: normalizedTables.length > 0 ? normalizedTables : previous?.usesTables ?? [fallbackTable]
+    });
+  }
+
+  const repoMap = new Map(args.seed.rust.repos.map((repo) => [repo.name, repo]));
+  for (const [idx, patch] of (args.delta.repos ?? []).entries()) {
+    const table = patch.table && tableSet.has(patch.table) ? patch.table : fallbackTable;
+    const name = toSnakeCase(patch.name ?? `${table}_repo`, `repo_${idx + 1}`);
+    const previous = repoMap.get(name);
+    const operations =
+      patch.operations && patch.operations.length > 0
+        ? uniqueStrings(patch.operations.map((item) => item.trim()).filter((item) => item.length > 0))
+        : previous?.operations ?? ["get", "list", "upsert"];
+    repoMap.set(name, { name, table, operations });
+  }
+
+  const errorCodes = uniqueStrings([
+    ...args.seed.rust.errorModel.errorCodes,
+    ...((args.delta.errorCodes ?? []).map((value) => value.trim()).filter((value) => value.length > 0))
+  ]);
+
+  return {
+    version: "v1",
+    rust: {
+      layering: "commands_service_repo",
+      services: Array.from(serviceMap.values()),
+      repos: Array.from(repoMap.values()),
+      errorModel: {
+        pattern: "thiserror+ApiResponse",
+        errorCodes
+      }
+    },
+    frontend: {
+      apiPattern: "invoke_wrapper+typed_meta",
+      stateManagement: args.delta.frontend?.stateManagement ?? args.seed.frontend.stateManagement,
+      validation: args.delta.frontend?.validation ?? args.seed.frontend.validation
+    }
+  };
+};
+
 export const runDesignImplementation = async (args: {
   goal: string;
   contract: z.infer<typeof contractForImplementationV1Schema>;
@@ -73,13 +169,14 @@ export const runDesignImplementation = async (args: {
   projectRoot?: string;
   provider: LlmProvider;
 }): Promise<{ impl: ImplementationDesignV1; attempts: number; raw: string }> => {
+  const seed = buildSeedImplementation(args.contract);
   const messages = [
     {
       role: "system" as const,
       content:
         "You are a Rust + Tauri implementation architect. " +
-        "Design service/repo layering, error model, and frontend invoke strategy. " +
-        "Return strict JSON only matching ImplementationDesignV1 schema."
+        "Return JSON delta only: services/repos/errorCodes/frontend preferences. " +
+        "Do not return full schema document; deterministic merge will produce final ImplementationDesignV1."
     },
     {
       role: "user" as const,
@@ -87,24 +184,32 @@ export const runDesignImplementation = async (args: {
         `Goal:\n${args.goal}\n\n` +
         `Project root:\n${args.projectRoot ?? "<none>"}\n\n` +
         `Contract:\n${JSON.stringify(args.contract, null, 2)}\n\n` +
-        `UX (optional):\n${args.ux ? JSON.stringify(args.ux, null, 2) : "<none>"}`
+        `UX (optional):\n${args.ux ? JSON.stringify(args.ux, null, 2) : "<none>"}\n\n` +
+        `Deterministic implementation seed (final schema-compliant base):\n${JSON.stringify(seed, null, 2)}\n\n` +
+        "Return strict JSON only with fields: services, repos, errorCodes, frontend."
     }
   ];
 
   try {
-    const { data, raw, attempts } = await args.provider.completeJSON(messages, implementationDesignV1Schema, {
+    const { data, raw, attempts } = await args.provider.completeJSON(messages, implementationDeltaSchema, {
       temperature: 0,
       maxOutputTokens: 4000
     });
+    const merged = mergeImplementationDelta({
+      seed,
+      delta: data,
+      contract: args.contract
+    });
+    const impl = implementationDesignV1Schema.parse(merged);
 
     return {
-      impl: data,
+      impl,
       attempts,
       raw
     };
   } catch (error) {
     return {
-      impl: buildSeedImplementation(args.contract),
+      impl: seed,
       attempts: 1,
       raw: error instanceof Error ? error.message : "fallback to deterministic implementation seed"
     };
