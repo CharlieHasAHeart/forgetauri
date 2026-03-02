@@ -82,6 +82,17 @@ export const executeToolCall = async (args: {
       "Unknown",
       `${result.error?.message ?? "tool failed"}${result.error?.detail ? ` (${truncate(result.error.detail)})` : ""}`
     );
+  } else if (result.data && typeof result.data === "object") {
+    const payload = result.data as Record<string, unknown>;
+    if (call.name === "tool_design_contract" && payload.contract && typeof payload.contract === "object") {
+      state.contract = payload.contract as typeof state.contract;
+    } else if (call.name === "tool_design_ux" && payload.ux && typeof payload.ux === "object") {
+      state.ux = payload.ux as typeof state.ux;
+    } else if (call.name === "tool_design_implementation" && payload.impl && typeof payload.impl === "object") {
+      state.impl = payload.impl as typeof state.impl;
+    } else if (call.name === "tool_design_delivery" && payload.delivery && typeof payload.delivery === "object") {
+      state.delivery = payload.delivery as typeof state.delivery;
+    }
   }
 
   return {

@@ -181,9 +181,39 @@ export const runTaskAttempt = async (args: {
       case "tool_design_ux":
         inputObj.specPath = runtimeSpecPath;
         if (runtimeProjectRoot) inputObj.projectRoot = runtimeProjectRoot;
+        inputObj.contract = parseMaybeJson(inputObj.contract);
+        if (
+          (!inputObj.contract || typeof inputObj.contract !== "object" || Array.isArray(inputObj.contract)) &&
+          args.state.contract
+        ) {
+          inputObj.contract = args.state.contract;
+        }
         break;
       case "tool_design_implementation":
+        inputObj.contract = parseMaybeJson(inputObj.contract);
+        if (
+          (!inputObj.contract || typeof inputObj.contract !== "object" || Array.isArray(inputObj.contract)) &&
+          args.state.contract
+        ) {
+          inputObj.contract = args.state.contract;
+        }
+        inputObj.ux = parseMaybeJson(inputObj.ux);
+        if ((!inputObj.ux || typeof inputObj.ux !== "object" || Array.isArray(inputObj.ux)) && args.state.ux) {
+          inputObj.ux = args.state.ux;
+        }
+        if (runtimeSpecPath && (inputObj as Record<string, unknown>).specPath === undefined) {
+          (inputObj as Record<string, unknown>).specPath = runtimeSpecPath;
+        }
+        if (runtimeProjectRoot) inputObj.projectRoot = runtimeProjectRoot;
+        break;
       case "tool_design_delivery":
+        inputObj.contract = parseMaybeJson(inputObj.contract);
+        if (
+          (!inputObj.contract || typeof inputObj.contract !== "object" || Array.isArray(inputObj.contract)) &&
+          args.state.contract
+        ) {
+          inputObj.contract = args.state.contract;
+        }
         if (runtimeProjectRoot) inputObj.projectRoot = runtimeProjectRoot;
         break;
       case "tool_materialize_contract":
