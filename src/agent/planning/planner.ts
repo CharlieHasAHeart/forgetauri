@@ -159,7 +159,29 @@ const proposePlanViaToolCall = async (args: {
     lastUsage = result.usage;
     lastRaw = result.raw ?? result.text ?? "";
 
-    const candidate = result.toolCalls[0]?.input;
+    const calls = result.toolCalls ?? [];
+    if (calls.length !== 1 || calls[0]?.name !== "emit_plan_v1") {
+      const summary = `expected exactly one tool call 'emit_plan_v1', got ${calls
+        .map((call) => call.name)
+        .join(", ") || "<none>"}`;
+
+      if (attempt === 3) {
+        throw new Error(`Invalid tool-call plan output: ${summary}`);
+      }
+
+      messages = [
+        ...messages,
+        {
+          role: "user",
+          content:
+            "Invalid function call behavior. You MUST call function emit_plan_v1 exactly once " +
+            `and return PlanV1 in its arguments. Error: ${summary}`
+        }
+      ];
+      continue;
+    }
+
+    const candidate = calls[0].input;
     try {
       const plan = planV1Schema.parse(candidate);
       return {

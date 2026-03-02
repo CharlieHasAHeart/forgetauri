@@ -101,6 +101,63 @@ class DashScopeInvalidPlanToolCallProvider extends BaseLlmProvider {
   }
 }
 
+class DashScopeWrongToolThenCorrectProvider extends BaseLlmProvider {
+  name = "dashscope_responses";
+  calls = 0;
+
+  async complete(_messages: LlmMessage[], _opts?: LlmCallOptions): Promise<LlmResponse> {
+    return { text: "", raw: {} };
+  }
+
+  async completeToolCalls(
+    _messages: LlmMessage[],
+    _tools: Array<{ name: string; description: string; inputJsonSchema: unknown }>,
+    opts?: LlmCallOptions
+  ): Promise<{
+    toolCalls: Array<{ name: string; input: unknown }>;
+    text?: string;
+    raw?: string;
+    responseId?: string;
+    usage?: unknown;
+    previousResponseIdSent?: string;
+  }> {
+    this.calls += 1;
+    if (this.calls === 1) {
+      return {
+        toolCalls: [{ name: "tool_read_files", input: {} }],
+        responseId: "resp-wrong",
+        previousResponseIdSent: opts?.previousResponseId
+      };
+    }
+
+    return {
+      toolCalls: [
+        {
+          name: "emit_plan_v1",
+          input: {
+            version: "v1",
+            goal: "demo",
+            acceptance_locked: true,
+            tech_stack_locked: true,
+            milestones: [],
+            tasks: [
+              {
+                id: "t1",
+                title: "Bootstrap",
+                description: "Create base",
+                dependencies: [],
+                success_criteria: [{ type: "file_exists", path: "README.md" }]
+              }
+            ]
+          }
+        }
+      ],
+      responseId: "resp-correct",
+      previousResponseIdSent: opts?.previousResponseId
+    };
+  }
+}
+
 describe("planner dashscope tool-calling path", () => {
   test("proposePlan parses emit_plan_v1 tool arguments", async () => {
     const registry = await createToolRegistry();
@@ -147,5 +204,28 @@ describe("planner dashscope tool-calling path", () => {
     ).rejects.toThrow();
 
     expect(provider.calls).toBe(3);
+  });
+
+  test("proposePlan retries when wrong tool is returned", async () => {
+    const registry = await createToolRegistry();
+    const provider = new DashScopeWrongToolThenCorrectProvider();
+
+    const result = await proposePlan({
+      goal: "demo",
+      provider,
+      registry,
+      stateSummary: {},
+      policy: defaultAgentPolicy({
+        maxSteps: 8,
+        maxActionsPerTask: 4,
+        maxRetriesPerTask: 2,
+        maxReplans: 2,
+        allowedTools: Object.keys(registry)
+      }),
+      maxToolCallsPerTurn: 4
+    });
+
+    expect(provider.calls).toBe(2);
+    expect(result.plan.tasks[0]?.id).toBe("t1");
   });
 });
