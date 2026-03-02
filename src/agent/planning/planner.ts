@@ -188,8 +188,10 @@ const planPromptContent = (args: {
 
 const normalizePlanForExecution = (plan: PlanV1): PlanV1 => {
   const tasks = plan.tasks.map((task) => {
-    const designHints = task.tool_hints.filter((hint) => hint.startsWith("tool_design_"));
-    if (designHints.length === 0) {
+    const normalizedHints = task.tool_hints.filter(
+      (hint) => hint.startsWith("tool_design_") || hint.startsWith("tool_materialize_")
+    );
+    if (normalizedHints.length === 0) {
       return task;
     }
 
@@ -201,10 +203,10 @@ const normalizePlanForExecution = (plan: PlanV1): PlanV1 => {
         .filter((criterion): criterion is Extract<SuccessCriteria, { type: "tool_result" }> => criterion.type === "tool_result")
         .map((criterion) => criterion.tool_name)
     );
-    const requiredDesignResults: SuccessCriteria[] = designHints
+    const requiredToolResults: SuccessCriteria[] = normalizedHints
       .filter((toolName) => !existingToolResultNames.has(toolName))
       .map((toolName) => ({ type: "tool_result" as const, tool_name: toolName, expected_ok: true }));
-    const compatibleCriteria: SuccessCriteria[] = [...requiredDesignResults, ...filteredCriteria];
+    const compatibleCriteria: SuccessCriteria[] = [...requiredToolResults, ...filteredCriteria];
 
     return {
       ...task,
