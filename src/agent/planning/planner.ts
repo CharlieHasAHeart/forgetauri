@@ -146,6 +146,7 @@ const proposePlanViaToolCall = async (args: {
     const result = await args.provider.completeToolCalls(messages, [tool], {
       temperature: 0,
       maxOutputTokens: 4500,
+      enableThinking: false,
       instructions: args.instructions,
       previousResponseId: sentPreviousResponseId,
       truncation: args.truncation,
