@@ -124,27 +124,10 @@ export const runTaskAttempt = async (args: {
     const rawInput = (call as { input: unknown }).input;
     const inputObj = rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
 
-    if (inputObj.specPath === undefined || String(inputObj.specPath).trim().length === 0) {
-      inputObj.specPath = args.ctx.memory.specPath ?? args.state.specPath;
-    }
-    if (inputObj.outDir === undefined || String(inputObj.outDir).trim().length === 0) {
-      inputObj.outDir = args.ctx.memory.outDir ?? args.state.outDir;
-    }
-    if (typeof inputObj.specPath === "string") {
-      inputObj.specPath = inputObj.specPath.trim();
-    }
-    if (typeof inputObj.outDir === "string") {
-      inputObj.outDir = inputObj.outDir.trim();
-    }
-
-    if (typeof inputObj.apply === "string") {
-      const normalized = inputObj.apply.trim().toLowerCase();
-      if (normalized === "true") inputObj.apply = true;
-      if (normalized === "false") inputObj.apply = false;
-    }
-    if (inputObj.apply === undefined) {
-      inputObj.apply = args.state.flags.apply;
-    }
+    // Bootstrap path/apply are runtime truths; never trust model-provided values here.
+    inputObj.specPath = args.ctx.memory.specPath ?? args.state.specPath;
+    inputObj.outDir = args.ctx.memory.outDir ?? args.state.outDir;
+    inputObj.apply = args.state.flags.apply;
 
     return { ...call, input: inputObj };
   });
