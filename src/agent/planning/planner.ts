@@ -7,7 +7,62 @@ import { llmJson } from "./json_extract.js";
 import { DEFAULT_PLAN_CHANGE_INSTRUCTIONS, DEFAULT_PLAN_INSTRUCTIONS } from "./prompts.js";
 import { renderToolIndex } from "./tool_index.js";
 import type { ToolSpec } from "../tools/types.js";
-import { zodToResponseJsonSchema } from "../../llm/responses/schema.js";
+
+const emitPlanV1Parameters: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    version: { type: "string", enum: ["v1"] },
+    goal: { type: "string" },
+    acceptance_locked: { type: "boolean" },
+    tech_stack_locked: { type: "boolean" },
+    milestones: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
+          task_ids: { type: "array", items: { type: "string" } }
+        },
+        required: ["id", "title", "task_ids"]
+      }
+    },
+    tasks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
+          dependencies: { type: "array", items: { type: "string" } },
+          tool_hints: { type: "array", items: { type: "string" } },
+          success_criteria: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                type: { type: "string" }
+              },
+              required: ["type"]
+            }
+          },
+          task_type: {
+            type: "string",
+            enum: ["build", "codegen", "test", "debug", "verify", "repair", "design", "materialize", "other"]
+          }
+        },
+        required: ["id", "title", "description", "success_criteria"]
+      }
+    }
+  },
+  required: ["version", "goal", "tasks"]
+};
 
 const summarizeIssues = (error: z.ZodError): string =>
   error.issues
@@ -67,7 +122,7 @@ const proposePlanViaToolCall = async (args: {
   const tool = {
     name: "emit_plan_v1",
     description: "Return a PlanV1 JSON object as function arguments (must match schema exactly).",
-    inputJsonSchema: zodToResponseJsonSchema(planV1Schema, "plan_v1").schema
+    inputJsonSchema: emitPlanV1Parameters
   };
 
   let previousResponseId = args.previousResponseId;
