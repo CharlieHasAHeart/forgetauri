@@ -84,6 +84,13 @@ export const runAgent = async (args: {
     planHistory: []
   };
 
+  const modelHint =
+    provider.name === "dashscope_responses"
+      ? process.env.DASHSCOPE_MODEL
+      : provider.name === "openai_responses"
+        ? process.env.OPENAI_MODEL
+        : undefined;
+
   const ctx: ToolRunContext = {
     provider,
     runCmdImpl,
@@ -102,6 +109,17 @@ export const runAgent = async (args: {
   };
 
   const audit = new AgentTurnAuditCollector(args.goal);
+  await audit.start(state.outDir, {
+    specPath: state.specPath,
+    outDir: state.outDir,
+    providerName: provider.name,
+    model: modelHint,
+    apply: state.flags.apply,
+    verify: state.flags.verify,
+    repair: state.flags.repair,
+    truncation: state.flags.truncation,
+    compactionThreshold: state.flags.compactionThreshold
+  });
 
   await runPlanFirstAgent({
     state,

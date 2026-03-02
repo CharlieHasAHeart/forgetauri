@@ -18,9 +18,67 @@ const truncate = (value: string, max = 60000): string => (value.length > max ? `
 export class AgentTurnAuditCollector {
   private readonly goal: string;
   private readonly turns: AgentTurnAuditEntry[] = [];
+  private filePath?: string;
+  private writeQueue: Promise<void> = Promise.resolve();
+  private startedAt = new Date().toISOString();
+  private startup?: {
+    specPath?: string;
+    outDir?: string;
+    providerName?: string;
+    model?: string;
+    apply?: boolean;
+    verify?: boolean;
+    repair?: boolean;
+    truncation?: "auto" | "disabled";
+    compactionThreshold?: number;
+  };
 
   constructor(goal: string) {
     this.goal = goal;
+  }
+
+  private payload(final?: unknown): unknown {
+    return {
+      goal: this.goal,
+      startedAt: this.startedAt,
+      startup: this.startup,
+      turns: this.turns,
+      final: final ?? { status: "running" }
+    };
+  }
+
+  private queueWrite(final?: unknown): void {
+    if (!this.filePath) return;
+    const path = this.filePath;
+    const content = JSON.stringify(this.payload(final), null, 2);
+    this.writeQueue = this.writeQueue.then(() => writeFile(path, content, "utf8"));
+  }
+
+  async start(
+    baseRoot: string,
+    startup?: {
+      specPath?: string;
+      outDir?: string;
+      providerName?: string;
+      model?: string;
+      apply?: boolean;
+      verify?: boolean;
+      repair?: boolean;
+      truncation?: "auto" | "disabled";
+      compactionThreshold?: number;
+    }
+  ): Promise<string> {
+    if (startup) {
+      this.startup = startup;
+    }
+    if (this.filePath) return this.filePath;
+    const dir = join(baseRoot, "generated/agent_logs");
+    await mkdir(dir, { recursive: true });
+    const counter = await nextJsonCounter(dir);
+    this.filePath = join(dir, `${String(counter).padStart(4, "0")}.json`);
+    this.queueWrite();
+    await this.writeQueue;
+    return this.filePath;
   }
 
   recordTurn(entry: AgentTurnAuditEntry): void {
@@ -36,21 +94,13 @@ export class AgentTurnAuditCollector {
         touchedPaths: result.touchedPaths?.slice(0, 200)
       }))
     });
+    this.queueWrite();
   }
 
   async flush(baseRoot: string, final: unknown): Promise<string> {
-    const dir = join(baseRoot, "generated/agent_logs");
-    await mkdir(dir, { recursive: true });
-    const counter = await nextJsonCounter(dir);
-    const path = join(dir, `${String(counter).padStart(4, "0")}.json`);
-
-    const payload = {
-      goal: this.goal,
-      turns: this.turns,
-      final
-    };
-
-    await writeFile(path, JSON.stringify(payload, null, 2), "utf8");
+    const path = await this.start(baseRoot);
+    this.queueWrite(final);
+    await this.writeQueue;
     return path;
   }
 }
