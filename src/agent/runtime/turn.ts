@@ -74,5 +74,10 @@ export const runTurn = async (args: {
     return { status: "failed", replans };
   }
 
+  if (args.completed.size === currentPlan.tasks.length) {
+    args.state.status = "done";
+    return { status: "done", replans };
+  }
+
   return { status: "continue", replans };
 };
