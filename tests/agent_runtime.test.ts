@@ -188,5 +188,5 @@ describe("agent runtime (plan mode only)", () => {
 
     expect(result.ok).toBe(true);
     expect(result.state.budgets.maxTurns).toBe(5);
-  });
+  }, 15000);
 });

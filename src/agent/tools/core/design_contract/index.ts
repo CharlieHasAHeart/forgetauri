@@ -18,6 +18,83 @@ const outputSchema = z.object({
   attempts: z.number().int().positive()
 });
 
+const contractDeltaSchema = z
+  .object({
+    app: z
+      .object({
+        name: z.string().optional(),
+        description: z.string().optional()
+      })
+      .optional(),
+    commands: z
+      .array(
+        z.object({
+          name: z.string().optional(),
+          purpose: z.string().optional(),
+          inputs: z
+            .array(
+              z.object({
+                name: z.string().optional(),
+                type: z.enum(["string", "int", "float", "boolean", "json"]).optional(),
+                optional: z.boolean().optional(),
+                description: z.string().optional()
+              })
+            )
+            .optional(),
+          outputs: z
+            .array(
+              z.object({
+                name: z.string().optional(),
+                type: z.enum(["string", "int", "float", "boolean", "json"]).optional(),
+                optional: z.boolean().optional(),
+                description: z.string().optional()
+              })
+            )
+            .optional(),
+          errors: z.array(z.object({ code: z.string().optional(), message: z.string().optional() })).optional(),
+          sideEffects: z.array(z.enum(["db_read", "db_write", "fs_read", "fs_write", "network"])).optional(),
+          idempotent: z.boolean().optional()
+        })
+      )
+      .optional(),
+    dataModel: z
+      .object({
+        tables: z
+          .array(
+            z.object({
+              name: z.string().optional(),
+              columns: z
+                .array(
+                  z.object({
+                    name: z.string().optional(),
+                    type: z.enum(["text", "integer", "real", "blob", "json"]).optional(),
+                    nullable: z.boolean().optional(),
+                    primaryKey: z.boolean().optional(),
+                    default: z.string().optional()
+                  })
+                )
+                .optional()
+            })
+          )
+          .optional(),
+        migrations: z.object({ strategy: z.enum(["single", "versioned"]).optional() }).optional()
+      })
+      .optional(),
+    acceptance: z
+      .object({
+        mustPass: z.array(z.enum(["pnpm_build", "cargo_check", "tauri_help", "tauri_build"])).optional(),
+        smokeCommands: z.array(z.string()).optional()
+      })
+      .optional()
+  })
+  .passthrough();
+
+type ContractGate = z.infer<typeof contractDesignV1Schema>["acceptance"] extends infer A
+  ? A extends { mustPass: Array<infer G> }
+    ? G
+    : never
+  : never;
+
 const truncate = (value: string, max = 120000): string => (value.length > max ? `${value.slice(0, max)}\n...<truncated>` : value);
 
 const toSnakeCase = (value: string): string =>
@@ -138,6 +215,109 @@ const buildSeedContractFromSpec = (spec: SpecIR): ContractDesignV1 => {
   };
 };
 
+const uniqueStrings = (values: string[]): string[] =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+    )
+  );
+
+const uniqueValues = <T>(values: T[]): T[] => Array.from(new Set(values));
+
+const mergeContractDelta = (seed: ContractDesignV1, delta: z.infer<typeof contractDeltaSchema>): ContractDesignV1 => {
+  const commandMap = new Map(seed.commands.map((command) => [command.name, command]));
+  for (const [index, patch] of (delta.commands ?? []).entries()) {
+    const requestedName = toSnakeCase(patch.name ?? "") || `command_${index + 1}`;
+    const name = commandMap.has(requestedName)
+      ? requestedName
+      : withUniqueName(requestedName, new Set(commandMap.keys()), "command", index);
+    const base = commandMap.get(name);
+    const mapFields = (
+      fields: Array<{ name?: string; type?: "string" | "int" | "float" | "boolean" | "json"; optional?: boolean; description?: string }> | undefined,
+      fallbackPrefix: string
+    ) =>
+      fields && fields.length > 0
+        ? fields.map((field, fieldIndex) => ({
+            name: toSnakeCase(field.name ?? `${fallbackPrefix}_${fieldIndex + 1}`) || `${fallbackPrefix}_${fieldIndex + 1}`,
+            type: field.type ?? "json",
+            optional: field.optional,
+            description: field.description
+          }))
+        : undefined;
+
+    commandMap.set(name, {
+      name,
+      purpose: patch.purpose?.trim() || base?.purpose || `Handle ${name}`,
+      inputs: mapFields(patch.inputs, "input") ?? base?.inputs ?? [],
+      outputs: mapFields(patch.outputs, "output") ?? base?.outputs ?? [],
+      errors:
+        patch.errors && patch.errors.length > 0
+          ? patch.errors.map((item, errorIndex) => ({
+              code: item.code?.trim() || `ERR_${name.toUpperCase()}_${errorIndex + 1}`,
+              message: item.message?.trim() || "Operation failed"
+            }))
+          : base?.errors,
+      sideEffects: patch.sideEffects ?? base?.sideEffects,
+      idempotent: patch.idempotent ?? base?.idempotent
+    });
+  }
+
+  const tableMap = new Map(seed.dataModel.tables.map((table) => [table.name, table]));
+  for (const [index, patch] of (delta.dataModel?.tables ?? []).entries()) {
+    const requestedName = toSnakeCase(patch.name ?? "") || `table_${index + 1}`;
+    const name = tableMap.has(requestedName)
+      ? requestedName
+      : withUniqueName(requestedName, new Set(tableMap.keys()), "table", index);
+    const base = tableMap.get(name);
+    const columns =
+      patch.columns && patch.columns.length > 0
+        ? patch.columns.map((column, columnIndex) => ({
+            name: toSnakeCase(column.name ?? `column_${columnIndex + 1}`) || `column_${columnIndex + 1}`,
+            type: column.type ?? "text",
+            nullable: column.nullable,
+            primaryKey: column.primaryKey,
+            default: column.default
+          }))
+        : base?.columns ?? [{ name: "id", type: "integer" as const, primaryKey: true }];
+    tableMap.set(name, {
+      name,
+      columns,
+      indices: base?.indices,
+      description: base?.description
+    });
+  }
+
+  return {
+    version: "v1",
+    app: {
+      name: delta.app?.name?.trim() || seed.app.name,
+      description: delta.app?.description ?? seed.app.description
+    },
+    commands: Array.from(commandMap.values()),
+    dataModel: {
+      tables: Array.from(tableMap.values()),
+      migrations: {
+        strategy: delta.dataModel?.migrations?.strategy ?? seed.dataModel.migrations.strategy
+      }
+    },
+    acceptance:
+      delta.acceptance || seed.acceptance
+        ? {
+            mustPass:
+              (delta.acceptance?.mustPass && delta.acceptance.mustPass.length > 0
+                ? uniqueValues<ContractGate>(delta.acceptance.mustPass)
+                : seed.acceptance?.mustPass) ?? ["pnpm_build"],
+            smokeCommands:
+              (delta.acceptance?.smokeCommands && delta.acceptance.smokeCommands.length > 0
+                ? uniqueStrings(delta.acceptance.smokeCommands)
+                : seed.acceptance?.smokeCommands) ?? undefined
+          }
+        : undefined
+  };
+};
+
 export const runDesignContract = async (args: {
   goal: string;
   specPath: string;
@@ -159,8 +339,8 @@ export const runDesignContract = async (args: {
       role: "system" as const,
       content:
         "You are a software architect for a Tauri v2 + Rust + SQLite desktop app. " +
-        "Design business contracts with command I/O and data model. " +
-        "Output JSON only, strictly matching the provided schema."
+        "Return JSON delta only for app/commands/dataModel/acceptance refinements. " +
+        "Do not return full contract; deterministic merge will produce final ContractDesignV1."
     },
     {
       role: "user" as const,
@@ -170,18 +350,21 @@ export const runDesignContract = async (args: {
         `Project root (optional context):\n${args.projectRoot ?? "<none>"}\n\n` +
         `Raw spec:\n${rawSpecText}\n\n` +
         `Deterministic seed contract (must remain schema-valid):\n${seedContractText}\n\n` +
-        "Stack constraints:\n- Tauri v2\n- Rust commands\n- SQLite via rusqlite\n- Deterministic contract names in snake_case"
+        "Stack constraints:\n- Tauri v2\n- Rust commands\n- SQLite via rusqlite\n- Deterministic contract names in snake_case\n\n" +
+        "Return strict JSON only with fields you want to refine: app, commands, dataModel, acceptance."
     }
   ];
 
   try {
-    const { data, raw: llmRaw, attempts } = await args.provider.completeJSON(messages, contractDesignV1Schema, {
+    const { data, raw: llmRaw, attempts } = await args.provider.completeJSON(messages, contractDeltaSchema, {
       temperature: 0,
       maxOutputTokens: 5000
     });
+    const merged = mergeContractDelta(seedContract, data);
+    const contract = contractDesignV1Schema.parse(merged);
 
     return {
-      contract: data,
+      contract,
       attempts,
       raw: llmRaw
     };

@@ -22,7 +22,6 @@ describe("tool_design_ux", () => {
   test("returns validated UX design", async () => {
     const provider = new MockProvider([
       JSON.stringify({
-        version: "v1",
         navigation: { kind: "sidebar", items: [{ id: "home", title: "Home", route: "/" }] },
         screens: [
           {

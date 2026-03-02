@@ -6,7 +6,6 @@ describe("tool_design_contract", () => {
   test("returns validated contract design from LLM JSON", async () => {
     const provider = new MockProvider([
       JSON.stringify({
-        version: "v1",
         app: { name: "MacroGraph", description: "Macro workflow desktop app" },
         commands: [
           {
@@ -54,6 +53,29 @@ describe("tool_design_contract", () => {
     expect(result.ok).toBe(true);
     const data = result.data as { contract: { version: string; commands: Array<{ name: string }> } };
     expect(data.contract.version).toBe("v1");
-    expect(data.contract.commands[0]?.name).toBe("lint_config");
+    expect(data.contract.commands.map((command) => command.name)).toContain("lint_config");
+  });
+
+  test("falls back to deterministic contract when LLM output is invalid", async () => {
+    const provider = new MockProvider(["not json"]);
+
+    const result = await toolPackage.runtime.run(
+      {
+        goal: "Design contracts",
+        specPath: "/tmp/spec.json",
+        rawSpec: { app: { name: "MacroGraph" } }
+      },
+      {
+        provider,
+        runCmdImpl: async () => ({ ok: true, code: 0, stdout: "", stderr: "" }),
+        flags: { apply: true, verify: true, repair: true, maxPatchesPerTurn: 8 },
+        memory: { patchPaths: [], touchedPaths: [] }
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    const data = result.data as { contract: { version: string; app: { name: string } } };
+    expect(data.contract.version).toBe("v1");
+    expect(data.contract.app.name).toBe("MacroGraph");
   });
 });
