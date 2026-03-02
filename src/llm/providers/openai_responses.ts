@@ -89,6 +89,63 @@ export class OpenAIResponsesProvider extends BaseLlmProvider {
     };
   }
 
+  override async completeToolCalls(
+    messages: LlmMessage[],
+    tools: Array<{ name: string; description: string; inputJsonSchema: unknown }>,
+    opts?: LlmCallOptions
+  ): Promise<{
+    toolCalls: Array<{ name: string; input: unknown }>;
+    text?: string;
+    raw?: string;
+    responseId?: string;
+    usage?: unknown;
+    previousResponseIdSent?: string;
+  }> {
+    const ir = toIR(messages, opts);
+    ir.tools = tools.map((tool) => ({
+      type: "function",
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputJsonSchema
+    }));
+
+    ir.toolChoice = "auto";
+    const tc = (opts?.metadata as { tool_choice?: unknown } | undefined)?.tool_choice;
+    if (tc === "required" || tc === "auto" || tc === "none") {
+      ir.toolChoice = tc;
+    }
+
+    const raw = await this.request(this.adapter.toRequestBody(ir));
+    const parsed = this.adapter.fromRawResponse(raw);
+
+    const parseErrors: string[] = [];
+    const toolCalls = (parsed.functionCalls ?? []).map((call) => {
+      try {
+        const input = JSON.parse(call.arguments || "{}") as unknown;
+        return { name: call.name, input };
+      } catch (error) {
+        parseErrors.push(
+          `${call.name}: ${error instanceof Error ? error.message : "failed to parse function arguments"}`
+        );
+        return { name: call.name, input: {} };
+      }
+    });
+
+    const rawText =
+      typeof parsed.text === "string" && parsed.text.length > 0 ? parsed.text : JSON.stringify(parsed.raw);
+    const withErrors =
+      parseErrors.length > 0 ? `${rawText}\n\n[tool-arguments-parse-errors]\n${parseErrors.join("\n")}` : rawText;
+
+    return {
+      toolCalls,
+      text: parsed.text,
+      raw: withErrors,
+      responseId: parsed.responseId,
+      usage: parsed.usage,
+      previousResponseIdSent: opts?.previousResponseId
+    };
+  }
+
   override async completeJSON<T>(
     messages: LlmMessage[],
     schema: z.ZodType<T>,

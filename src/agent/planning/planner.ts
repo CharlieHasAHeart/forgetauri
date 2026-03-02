@@ -7,6 +7,136 @@ import { llmJson } from "./json_extract.js";
 import { DEFAULT_PLAN_CHANGE_INSTRUCTIONS, DEFAULT_PLAN_INSTRUCTIONS } from "./prompts.js";
 import { renderToolIndex } from "./tool_index.js";
 import type { ToolSpec } from "../tools/types.js";
+import { zodToResponseJsonSchema } from "../../llm/responses/schema.js";
+
+const summarizeIssues = (error: z.ZodError): string =>
+  error.issues
+    .slice(0, 6)
+    .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+    .join("; ");
+
+const planPromptContent = (args: {
+  goal: string;
+  policy: AgentPolicy;
+  registry: Record<string, ToolSpec>;
+  stateSummary: unknown;
+  maxToolCallsPerTurn: number;
+}): string => {
+  const toolIndex = renderToolIndex(args.registry);
+  return (
+    `Create PlanV1 for this goal:\n${args.goal}\n\n` +
+    `Tech stack constraints (locked unless user allows):\n${JSON.stringify(args.policy, null, 2)}\n\n` +
+    `Tool index:\n${toolIndex}\n\n` +
+    `Repo state summary:\n${JSON.stringify(args.stateSummary, null, 2)}\n\n` +
+    `Planning constraints:\n${JSON.stringify(
+      {
+        maxSteps: args.policy.budgets.max_steps,
+        maxToolCallsPerTurn: args.maxToolCallsPerTurn,
+        acceptanceLocked: args.policy.acceptance.locked,
+        techStackLocked: args.policy.tech_stack_locked
+      },
+      null,
+      2
+    )}\n` +
+    "Every task must include success_criteria with machine-checkable command/file checks."
+  );
+};
+
+const proposePlanViaToolCall = async (args: {
+  goal: string;
+  provider: LlmProvider;
+  registry: Record<string, ToolSpec>;
+  stateSummary: unknown;
+  policy: AgentPolicy;
+  maxToolCallsPerTurn: number;
+  previousResponseId?: string;
+  instructions: string;
+  truncation?: "auto" | "disabled";
+  contextManagement?: Array<{ type: "compaction"; compactThreshold?: number }>;
+}): Promise<{
+  plan: PlanV1;
+  raw: string;
+  responseId?: string;
+  usage?: unknown;
+  previousResponseIdSent?: string;
+}> => {
+  if (typeof args.provider.completeToolCalls !== "function") {
+    throw new Error("provider does not support completeToolCalls");
+  }
+
+  const tool = {
+    name: "emit_plan_v1",
+    description: "Return a PlanV1 JSON object as function arguments (must match schema exactly).",
+    inputJsonSchema: zodToResponseJsonSchema(planV1Schema, "plan_v1").schema
+  };
+
+  let previousResponseId = args.previousResponseId;
+  let lastRaw = "";
+  let lastUsage: unknown;
+  let previousResponseIdSent: string | undefined;
+  let messages = [
+    {
+      role: "user" as const,
+      content:
+        `${planPromptContent(args)}\n\n` +
+        "You MUST call function emit_plan_v1 exactly once.\n" +
+        "Task ids must be strings like 't1_setup', not numbers.\n" +
+        "success_criteria must be an array (even with one item).\n" +
+        "Return no extra text; only the function call arguments."
+    }
+  ];
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const result = await args.provider.completeToolCalls(messages, [tool], {
+      temperature: 0,
+      maxOutputTokens: 4500,
+      instructions: args.instructions,
+      previousResponseId,
+      truncation: args.truncation,
+      contextManagement: args.contextManagement,
+      metadata: {
+        tool_choice: "required"
+      }
+    });
+
+    previousResponseIdSent = result.previousResponseIdSent ?? previousResponseId;
+    previousResponseId = result.responseId ?? previousResponseId;
+    lastUsage = result.usage;
+    lastRaw = result.raw ?? result.text ?? "";
+
+    const candidate = result.toolCalls[0]?.input;
+    try {
+      const plan = planV1Schema.parse(candidate);
+      return {
+        plan,
+        raw: lastRaw || JSON.stringify(candidate, null, 2),
+        responseId: result.responseId,
+        usage: result.usage,
+        previousResponseIdSent
+      };
+    } catch (error) {
+      if (!(error instanceof z.ZodError) || attempt === 3) {
+        throw error;
+      }
+
+      messages = [
+        ...messages,
+        {
+          role: "user",
+          content:
+            "Your emit_plan_v1 arguments did not match PlanV1 schema. " +
+            `Fix ONLY the JSON. Errors: ${summarizeIssues(error)}`
+        }
+      ];
+    }
+  }
+
+  throw new Error(
+    `Failed to produce valid PlanV1 from tool-calling after retries. lastRaw=${lastRaw.slice(0, 800)} usage=${JSON.stringify(
+      lastUsage
+    )} previousResponseIdSent=${previousResponseIdSent ?? ""}`
+  );
+};
 
 export const proposePlan = async (args: {
   goal: string;
@@ -27,8 +157,12 @@ export const proposePlan = async (args: {
   previousResponseIdSent?: string;
 }> => {
   const instructions = args.instructions ?? DEFAULT_PLAN_INSTRUCTIONS;
-
-  const toolIndex = renderToolIndex(args.registry);
+  if (args.provider.name === "dashscope_responses" && typeof args.provider.completeToolCalls === "function") {
+    return proposePlanViaToolCall({
+      ...args,
+      instructions
+    });
+  }
 
   const result = await llmJson({
     provider: args.provider,
@@ -41,26 +175,7 @@ export const proposePlan = async (args: {
     messages: [
       {
         role: "user",
-        content:
-          `Create PlanV1 for this goal:\n${args.goal}\n\n` +
-          `Tech stack constraints (locked unless user allows):\n${JSON.stringify(
-            args.policy,
-            null,
-            2
-          )}\n\n` +
-          `Tool index:\n${toolIndex}\n\n` +
-          `Repo state summary:\n${JSON.stringify(args.stateSummary, null, 2)}\n\n` +
-          `Planning constraints:\n${JSON.stringify(
-            {
-              maxSteps: args.policy.budgets.max_steps,
-              maxToolCallsPerTurn: args.maxToolCallsPerTurn,
-              acceptanceLocked: args.policy.acceptance.locked,
-              techStackLocked: args.policy.tech_stack_locked
-            },
-            null,
-            2
-          )}\n` +
-          "Every task must include success_criteria with machine-checkable command/file checks."
+        content: planPromptContent(args)
       }
     ]
   });
