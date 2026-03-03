@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import { assertPathInside } from "../../../../runtime/policy.js";
+import { assertPathInside } from "../../../../core/agent/policy/validators.js";
 import type { ToolPackage } from "../../types.js";
 
 const ICON_PNG_BASE64 =

@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { contractDesignV1Schema, type ContractDesignV1 } from "../../../design/contract/schema.js";
-import { assertPathInside } from "../../../../runtime/policy.js";
+import { assertPathInside } from "../../../../core/agent/policy/validators.js";
 import type { ToolPackage } from "../../types.js";
 
 const GENERATED_BEGIN = "// BEGIN GENERATED COMMANDS (codegen_from_design)";

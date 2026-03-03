@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { assertPathInside } from "../runtime/policy.js";
+import { assertPathInside } from "../core/agent/policy/validators.js";
 import { makeUnifiedDiff } from "./diff.js";
 import type { PlanAction } from "./types.js";
 import { classifyPath } from "./zones.js";

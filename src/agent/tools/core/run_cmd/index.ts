@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assertCommandAllowed, assertCwdInside } from "../../../../runtime/policy.js";
+import { assertCommandAllowed, assertCwdInside } from "../../../../core/agent/policy/validators.js";
 import type { ToolPackage } from "../../types.js";
 
 const inputSchema = z.object({

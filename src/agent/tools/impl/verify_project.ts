@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { CmdResult } from "../../../runner/runCmd.js";
-import { assertCommandAllowed, assertCwdInside } from "../../../runtime/policy.js";
+import { assertCommandAllowed, assertCwdInside } from "../../../core/agent/policy/validators.js";
 import type { AgentCmdRunner, ErrorKind, VerifyProjectResult, VerifyStepResult } from "../../types.js";
 import type { AcceptanceStepEvent } from "../../core/evidence/types.js";
 import {
