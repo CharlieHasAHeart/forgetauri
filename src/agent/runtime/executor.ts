@@ -7,7 +7,7 @@ import { evaluateSuccessCriteriaWithTools } from "../evaluation/reviewer.js";
 import type { ToolRunContext, ToolSpec } from "../tools/types.js";
 import { setStateError, truncate } from "./errors.js";
 import type { AgentEvent } from "./events.js";
-import { summarizeForEvidence, type EvidenceEvent } from "../core/evidence.js";
+import { summarizeForEvidence, tail, type EvidenceEvent } from "../core/evidence.js";
 
 export type HumanReviewFn = (args: { reason: string; patchPaths: string[]; phase: AgentStatus }) => Promise<boolean>;
 
@@ -99,6 +99,33 @@ export const executeToolCall = async (args: {
     };
   };
 
+  const maybeAppendCommandRan = (resultData: unknown, ok: boolean): void => {
+    if (!canLogEvidence || !runId || turn === undefined || !taskId || call.name !== "tool_run_cmd") return;
+    if (!resultData || typeof resultData !== "object") return;
+    const data = resultData as Record<string, unknown>;
+    const parsedInput = parsed.success && parsed.data && typeof parsed.data === "object" ? (parsed.data as Record<string, unknown>) : {};
+    const cmd = typeof parsedInput.cmd === "string" ? parsedInput.cmd : "";
+    const args = Array.isArray(parsedInput.args) ? parsedInput.args.map((item) => String(item)) : [];
+    const cwd = typeof parsedInput.cwd === "string" ? parsedInput.cwd : "";
+    const exitCode = safeInt(data.code ?? data.exitCode);
+    if (!cmd || !cwd || exitCode === undefined) return;
+    appendEvidence({
+      event_type: "command_ran",
+      run_id: runId,
+      turn,
+      task_id: taskId,
+      call_id: callId,
+      cmd,
+      args,
+      cwd,
+      ok,
+      exit_code: exitCode,
+      stdout_tail: typeof data.stdout === "string" ? tail(data.stdout) : undefined,
+      stderr_tail: typeof data.stderr === "string" ? tail(data.stderr) : undefined,
+      at: new Date().toISOString()
+    });
+  };
+
   if (canLogEvidence && runId && turn !== undefined && taskId) {
     appendEvidence({
       event_type: "tool_called",
@@ -162,7 +189,7 @@ export const executeToolCall = async (args: {
         note: state.lastError?.message,
         touchedPaths: touched,
         resultData: result.data,
-        exitCode: safeInt((result.data as Record<string, unknown> | undefined)?.exitCode)
+        exitCode: safeInt((result.data as Record<string, unknown> | undefined)?.exitCode ?? (result.data as Record<string, unknown> | undefined)?.code)
       });
     }
   }
@@ -186,12 +213,14 @@ export const executeToolCall = async (args: {
     }
   }
 
+  maybeAppendCommandRan(result.data, result.ok);
+
   return finish({
     ok: result.ok,
     note: result.ok ? "ok" : state.lastError?.message,
     touchedPaths: touched,
     resultData: result.data,
-    exitCode: safeInt((result.data as Record<string, unknown> | undefined)?.exitCode)
+    exitCode: safeInt((result.data as Record<string, unknown> | undefined)?.exitCode ?? (result.data as Record<string, unknown> | undefined)?.code)
   });
 };
 

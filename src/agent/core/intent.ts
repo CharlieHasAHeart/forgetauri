@@ -14,5 +14,12 @@ export type VerifyToolExitIntent = {
   expect_exit_code: number;
 };
 
-export type Intent = BootstrapIntent | EnsurePathsIntent | VerifyToolExitIntent;
+export type VerifyCommandIntent = {
+  type: "verify_command";
+  cmd: string;
+  args: string[];
+  cwd?: string;
+  expect_exit_code: number;
+};
 
+export type Intent = BootstrapIntent | EnsurePathsIntent | VerifyToolExitIntent | VerifyCommandIntent;

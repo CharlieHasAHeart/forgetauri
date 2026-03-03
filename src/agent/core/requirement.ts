@@ -20,7 +20,20 @@ export type FileHashRequirement = {
   sha256: string;
 };
 
-export type Requirement = ToolOkRequirement | ToolExitCodeRequirement | FileExistsRequirement | FileHashRequirement;
+export type CommandExitRequirement = {
+  kind: "command_exit";
+  cmd: string;
+  args: string[];
+  cwd?: string;
+  expect_exit_code: number;
+};
+
+export type Requirement =
+  | ToolOkRequirement
+  | ToolExitCodeRequirement
+  | FileExistsRequirement
+  | FileHashRequirement
+  | CommandExitRequirement;
 
 export const requirementKey = (requirement: Requirement): string => {
   switch (requirement.kind) {
@@ -32,6 +45,8 @@ export const requirementKey = (requirement: Requirement): string => {
       return `file_exists:${requirement.path}`;
     case "file_hash":
       return `file_hash:${requirement.path}:${requirement.sha256}`;
+    case "command_exit":
+      return `command_exit:${requirement.cmd}:${JSON.stringify(requirement.args)}:${requirement.cwd ?? ""}:${requirement.expect_exit_code}`;
   }
 };
 
@@ -46,4 +61,3 @@ export const dedupeRequirements = <T extends Requirement>(requirements: T[]): T[
   }
   return out;
 };
-

@@ -24,9 +24,30 @@ export type ToolReturnedEvent = {
   exit_code?: number;
 };
 
-export type EvidenceEvent = ToolCalledEvent | ToolReturnedEvent;
+export type CommandRanEvent = {
+  event_type: "command_ran";
+  run_id: string;
+  turn: number;
+  task_id: string;
+  call_id: string;
+  cmd: string;
+  args: string[];
+  cwd: string;
+  ok: boolean;
+  exit_code: number;
+  stdout_tail?: string;
+  stderr_tail?: string;
+  at: string;
+};
+
+export type EvidenceEvent = ToolCalledEvent | ToolReturnedEvent | CommandRanEvent;
 
 const truncate = (value: string, max = 2000): string => (value.length > max ? `${value.slice(0, max)}...<truncated>` : value);
+
+export const tail = (value: string, max = 4000): string => {
+  if (value.length <= max) return value;
+  return `...<truncated>${value.slice(value.length - max)}`;
+};
 
 export const summarizeForEvidence = (value: unknown, max = 2000): string => {
   if (value === undefined) return "undefined";
@@ -39,4 +60,3 @@ export const summarizeForEvidence = (value: unknown, max = 2000): string => {
     return truncate(String(value), max);
   }
 };
-

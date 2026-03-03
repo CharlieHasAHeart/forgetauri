@@ -1,7 +1,14 @@
 import type { EvidenceEvent } from "./evidence.js";
-import type { BootstrapIntent, EnsurePathsIntent, Intent, VerifyToolExitIntent } from "./intent.js";
+import type { BootstrapIntent, EnsurePathsIntent, Intent, VerifyCommandIntent, VerifyToolExitIntent } from "./intent.js";
 import { normalizePath } from "./path_normalizer.js";
-import { dedupeRequirements, requirementKey, type FileExistsRequirement, type Requirement, type ToolExitCodeRequirement } from "./requirement.js";
+import {
+  dedupeRequirements,
+  requirementKey,
+  type CommandExitRequirement,
+  type FileExistsRequirement,
+  type Requirement,
+  type ToolExitCodeRequirement
+} from "./requirement.js";
 import type { WorkspaceSnapshot } from "./workspace_snapshot.js";
 
 export type EvaluationResult = {
@@ -120,6 +127,44 @@ const evaluateVerifyToolExitIntent = (input: Omit<EvalInput, "intent"> & { inten
   };
 };
 
+const sameArgs = (left: string[], right: string[]): boolean =>
+  left.length === right.length && left.every((value, idx) => value === right[idx]);
+
+const evaluateVerifyCommandIntent = (input: Omit<EvalInput, "intent"> & { intent: VerifyCommandIntent }): EvaluationResult => {
+  const requirement: CommandExitRequirement = {
+    kind: "command_exit",
+    cmd: input.intent.cmd,
+    args: input.intent.args,
+    cwd: input.intent.cwd,
+    expect_exit_code: input.intent.expect_exit_code
+  };
+
+  const matched = input.evidence.some((event) => {
+    if (event.event_type !== "command_ran") return false;
+    if (event.cmd !== input.intent.cmd) return false;
+    if (!sameArgs(event.args, input.intent.args)) return false;
+    if (input.intent.cwd !== undefined && event.cwd !== input.intent.cwd) return false;
+    if (event.exit_code !== input.intent.expect_exit_code) return false;
+    return event.ok === true;
+  });
+
+  if (matched) {
+    return {
+      status: "satisfied",
+      requirements: [],
+      satisfied_requirements: [requirement],
+      diagnostics: []
+    };
+  }
+
+  return {
+    status: "pending",
+    requirements: [requirement],
+    satisfied_requirements: [],
+    diagnostics: []
+  };
+};
+
 export const evaluateAcceptance = (input: EvalInput): EvaluationResult => {
   void input.goal;
   let result: EvaluationResult;
@@ -127,6 +172,8 @@ export const evaluateAcceptance = (input: EvalInput): EvaluationResult => {
     result = evaluateBootstrapIntent({ ...input, intent: input.intent });
   } else if (input.intent.type === "ensure_paths") {
     result = evaluateEnsurePathsIntent({ ...input, intent: input.intent });
+  } else if (input.intent.type === "verify_command") {
+    result = evaluateVerifyCommandIntent({ ...input, intent: input.intent });
   } else {
     result = evaluateVerifyToolExitIntent({ ...input, intent: input.intent });
   }

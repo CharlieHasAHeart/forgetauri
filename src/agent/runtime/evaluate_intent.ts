@@ -18,6 +18,13 @@ const intentSchema = z.discriminatedUnion("type", [
     type: z.literal("verify_tool_exit"),
     tool_name: z.string().min(1),
     expect_exit_code: z.number().int()
+  }),
+  z.object({
+    type: z.literal("verify_command"),
+    cmd: z.string().min(1),
+    args: z.array(z.string()),
+    cwd: z.string().min(1).optional(),
+    expect_exit_code: z.number().int()
   })
 ]);
 
@@ -67,4 +74,3 @@ export const evaluateIntentFromJsonInput = async (args: {
     intent: parsed
   });
 };
-

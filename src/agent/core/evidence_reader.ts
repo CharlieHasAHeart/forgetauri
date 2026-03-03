@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { EvidenceEvent, ToolCalledEvent, ToolReturnedEvent } from "./evidence.js";
+import type { CommandRanEvent, EvidenceEvent, ToolCalledEvent, ToolReturnedEvent } from "./evidence.js";
 
 export type EvidenceReadResult = {
   events: EvidenceEvent[];
@@ -29,6 +29,21 @@ const isToolReturned = (value: unknown): value is ToolReturnedEvent =>
   typeof value.ok === "boolean" &&
   typeof value.ended_at === "string";
 
+const isCommandRan = (value: unknown): value is CommandRanEvent =>
+  isObject(value) &&
+  value.event_type === "command_ran" &&
+  typeof value.run_id === "string" &&
+  typeof value.turn === "number" &&
+  typeof value.task_id === "string" &&
+  typeof value.call_id === "string" &&
+  typeof value.cmd === "string" &&
+  Array.isArray(value.args) &&
+  value.args.every((item) => typeof item === "string") &&
+  typeof value.cwd === "string" &&
+  typeof value.ok === "boolean" &&
+  typeof value.exit_code === "number" &&
+  typeof value.at === "string";
+
 export const readEvidenceJsonlWithDiagnostics = async (filePath: string): Promise<EvidenceReadResult> => {
   const diagnostics: string[] = [];
   let content = "";
@@ -46,7 +61,7 @@ export const readEvidenceJsonlWithDiagnostics = async (filePath: string): Promis
     if (raw.length === 0) return;
     try {
       const parsed = JSON.parse(raw) as unknown;
-      if (isToolCalled(parsed) || isToolReturned(parsed)) {
+      if (isToolCalled(parsed) || isToolReturned(parsed) || isCommandRan(parsed)) {
         events.push(parsed);
         return;
       }
@@ -67,4 +82,3 @@ export const readEvidenceJsonl = async (filePath: string): Promise<EvidenceEvent
   const result = await readEvidenceJsonlWithDiagnostics(filePath);
   return result.events;
 };
-
