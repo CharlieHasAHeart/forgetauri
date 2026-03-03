@@ -3,12 +3,13 @@ import { getProviderFromEnv } from "../../llm/index.js";
 import type { LlmProvider } from "../../llm/provider.js";
 import { runCmd, type CmdResult } from "../../runner/runCmd.js";
 import { runAgent as runCoreAgent } from "../../core/agent/runAgent.js";
-import { defaultAgentPolicy, type AgentPolicy } from "../../core/agent/policy/policy.js";
+import { type AgentPolicy } from "../../core/agent/policy/policy.js";
 import { createToolRegistry, loadToolRegistryWithDocs } from "../tools/registry.js";
 import type { ToolSpec } from "../tools/types.js";
 import type { AgentState } from "../types.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "../../core/agent/contracts.js";
 import type { AgentEvent } from "../../core/agent/events.js";
+import { createForgeAuriProfile } from "../../app/forgeAuriProfile.js";
 
 export const runAgent = async (args: {
   goal: string;
@@ -31,22 +32,35 @@ export const runAgent = async (args: {
   requestPlanChangeReview?: PlanChangeReviewFn;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<{ ok: boolean; summary: string; auditPath?: string; patchPaths?: string[]; state: AgentState }> => {
-  const provider = args.provider ?? getProviderFromEnv();
-  const runCmdImpl = args.runCmdImpl ?? runCmd;
+  const profile = createForgeAuriProfile<
+    LlmProvider,
+    (cmd: string, argv: string[], cwd: string) => Promise<CmdResult>,
+    Parameters<typeof createToolRegistry>[0]
+  >({
+    resolveDefaultLlm: () => getProviderFromEnv(),
+    resolveDefaultCommandRunner: () => runCmd,
+    createDefaultAudit: (goal) => new AgentTurnAuditCollector(goal),
+    loadRegistryWithDocs: (registryDeps) => loadToolRegistryWithDocs(registryDeps),
+    createRegistry: (registryDeps) => createToolRegistry(registryDeps)
+  });
+
+  const { llm: provider, commandRunner: runCmdImpl } = profile.resolvePorts({
+    llm: args.provider,
+    commandRunner: args.runCmdImpl
+  });
   const maxTurns = args.maxTurns ?? 16;
   const maxToolCallsPerTurn = args.maxToolCallsPerTurn ?? 4;
   const maxPatches = args.maxPatches ?? 8;
-  const discovered = args.registry ? null : await loadToolRegistryWithDocs(args.registryDeps);
-  const registry = args.registry ?? discovered?.registry ?? (await createToolRegistry(args.registryDeps));
-  const policy =
-    args.policy ??
-    defaultAgentPolicy({
-      maxSteps: maxTurns,
-      maxActionsPerTask: maxToolCallsPerTurn,
-      maxRetriesPerTask: 3,
-      maxReplans: 3,
-      allowedTools: Object.keys(registry)
-    });
+  const registry = await profile.resolveRegistry({
+    registryOverride: args.registry,
+    registryDeps: args.registryDeps
+  });
+  const policy = profile.buildPolicy({
+    maxTurns,
+    maxToolCallsPerTurn,
+    registryKeys: Object.keys(registry),
+    overridePolicy: args.policy
+  });
 
   const modelHint =
     provider.name === "dashscope_responses"
@@ -79,7 +93,7 @@ export const runAgent = async (args: {
     registry,
     llm: provider,
     commandRunner: runCmdImpl,
-    audit: new AgentTurnAuditCollector(args.goal),
+    audit: profile.createAudit({ goal: args.goal }),
     humanReview: reviewPort,
     modelHint,
     runtimeRepoRoot: process.cwd(),

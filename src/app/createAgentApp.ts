@@ -4,12 +4,13 @@ import { getLlmAdapterFromEnv } from "../adapters/llm/index.js";
 import { NodeCommandRunner } from "../adapters/command/NodeCommandRunner.js";
 import { FileAuditAdapter } from "../adapters/audit/FileAuditAdapter.js";
 import { runAgent as runCoreAgent } from "../core/agent/runAgent.js";
-import { defaultAgentPolicy, type AgentPolicy } from "./defaultPolicy.js";
+import type { AgentPolicy } from "./defaultPolicy.js";
 import { createDefaultRegistry, loadDefaultRegistryWithDocs } from "./defaultRegistry.js";
 import type { HumanReviewPort } from "../ports/HumanReviewPort.js";
 import type { LlmPort } from "../ports/LlmPort.js";
 import type { CommandRunnerPort } from "../ports/CommandRunnerPort.js";
 import type { AgentTurnAuditCollector } from "../core/agent/audit.js";
+import { createForgeAuriProfile } from "./forgeAuriProfile.js";
 
 export type CreateAgentAppDeps = {
   llm?: LlmPort;
@@ -20,9 +21,17 @@ export type CreateAgentAppDeps = {
 };
 
 export const createAgentApp = (deps?: CreateAgentAppDeps) => {
-  const llm = deps?.llm ?? getLlmAdapterFromEnv();
-  const commandRunner = deps?.commandRunner ?? NodeCommandRunner;
-  const audit = deps?.audit ?? new FileAuditAdapter("agent");
+  const profile = createForgeAuriProfile<LlmPort, CommandRunnerPort>({
+    deps,
+    resolveDefaultLlm: () => getLlmAdapterFromEnv(),
+    resolveDefaultCommandRunner: () => NodeCommandRunner,
+    createDefaultAudit: () => new FileAuditAdapter("agent"),
+    loadRegistryWithDocs: () => loadDefaultRegistryWithDocs(),
+    createRegistry: () => createDefaultRegistry()
+  });
+
+  const { llm, commandRunner } = profile.resolvePorts();
+  const audit = profile.createAudit({ goal: "agent", useDepsAudit: true });
 
   const runAgent = async (args: {
     goal: string;
@@ -43,18 +52,14 @@ export const createAgentApp = (deps?: CreateAgentAppDeps) => {
     const maxTurns = args.maxTurns ?? 16;
     const maxToolCallsPerTurn = args.maxToolCallsPerTurn ?? 4;
     const maxPatches = args.maxPatches ?? 8;
-    const discovered = deps?.registry ? null : await loadDefaultRegistryWithDocs();
-    const registry = deps?.registry ?? discovered?.registry ?? (await createDefaultRegistry());
-    const policy =
-      args.policy ??
-      deps?.policy ??
-      defaultAgentPolicy({
-        maxSteps: maxTurns,
-        maxActionsPerTask: maxToolCallsPerTurn,
-        maxRetriesPerTask: 3,
-        maxReplans: 3,
-        allowedTools: Object.keys(registry)
-      });
+    const registry = await profile.resolveRegistry();
+    const policy = profile.buildPolicy({
+      maxTurns,
+      maxToolCallsPerTurn,
+      registryKeys: Object.keys(registry),
+      overridePolicy: args.policy,
+      useDepsPolicy: true
+    });
 
     return runCoreAgent({
       goal: args.goal,
