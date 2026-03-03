@@ -1,2 +1,2 @@
-export { runAgent } from "./agent/index.js";
-export type { AgentState, AgentStatus, VerifyProjectResult, VerifyStepResult, ErrorKind } from "./agent/index.js";
+export { runAgent } from "./interfaces/api/index.js";
+export type { AgentState, AgentStatus, VerifyProjectResult, VerifyStepResult, ErrorKind } from "./interfaces/api/index.js";

@@ -2,8 +2,7 @@ import type { AgentPolicy } from "../../runtime/policy/policy.js";
 import type { AgentState } from "../../types.js";
 import type { ToolRunContext, ToolSpec, ToolResult } from "../../tools/types.js";
 import type { AgentEvent } from "../../runtime/events.js";
-
-export type HumanReviewFn = (args: { reason: string; patchPaths: string[]; phase: AgentState["status"] }) => Promise<boolean>;
+import type { HumanReviewFn } from "../../../core/agent/contracts.js";
 
 export type ToolCallContext = {
   call: { name: string; input: unknown };

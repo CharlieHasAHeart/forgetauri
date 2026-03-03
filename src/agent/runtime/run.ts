@@ -1,17 +1,14 @@
 import { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
-import { renderToolIndex } from "../planning/tool_index.js";
-import { defaultAgentPolicy, type AgentPolicy } from "./policy/policy.js";
-import { createToolRegistry, loadToolRegistryWithDocs } from "../tools/registry.js";
-import type { ToolRunContext, ToolSpec } from "../tools/types.js";
 import { getProviderFromEnv } from "../../llm/index.js";
 import type { LlmProvider } from "../../llm/provider.js";
 import { runCmd, type CmdResult } from "../../runner/runCmd.js";
+import { runAgent as runCoreAgent } from "../../core/agent/runAgent.js";
+import { defaultAgentPolicy, type AgentPolicy } from "./policy/policy.js";
+import { createToolRegistry, loadToolRegistryWithDocs } from "../tools/registry.js";
+import type { ToolSpec } from "../tools/types.js";
 import type { AgentState } from "../types.js";
-import { runPlanFirstAgent } from "./orchestrator.js";
-import type { HumanReviewFn } from "./executor.js";
-import type { PlanChangeReviewFn } from "./replanner.js";
+import type { HumanReviewFn, PlanChangeReviewFn } from "../../core/agent/contracts.js";
 import type { AgentEvent } from "./events.js";
-import { getRuntimePaths } from "./get_runtime_paths.js";
 
 export const runAgent = async (args: {
   goal: string;
@@ -39,9 +36,6 @@ export const runAgent = async (args: {
   const maxTurns = args.maxTurns ?? 16;
   const maxToolCallsPerTurn = args.maxToolCallsPerTurn ?? 4;
   const maxPatches = args.maxPatches ?? 8;
-  const truncation = args.truncation ?? "auto";
-  const compactionThreshold = args.compactionThreshold;
-
   const discovered = args.registry ? null : await loadToolRegistryWithDocs(args.registryDeps);
   const registry = args.registry ?? discovered?.registry ?? (await createToolRegistry(args.registryDeps));
   const policy =
@@ -54,37 +48,6 @@ export const runAgent = async (args: {
       allowedTools: Object.keys(registry)
     });
 
-  const state: AgentState = {
-    goal: args.goal,
-    specPath: args.specPath,
-    outDir: args.outDir,
-    flags: {
-      apply: args.apply,
-      verify: args.verify,
-      repair: args.repair,
-      truncation,
-      compactionThreshold
-    },
-    status: "planning",
-    usedLLM: false,
-    verifyHistory: [],
-    budgets: {
-      maxTurns,
-      maxPatches,
-      usedTurns: 0,
-      usedPatches: 0,
-      usedRepairs: 0
-    },
-    patchPaths: [],
-    humanReviews: [],
-    lastDeterministicFixes: [],
-    repairKnownChecked: false,
-    touchedFiles: [],
-    toolCalls: [],
-    toolResults: [],
-    planHistory: []
-  };
-
   const modelHint =
     provider.name === "dashscope_responses"
       ? process.env.DASHSCOPE_MODEL
@@ -92,101 +55,34 @@ export const runAgent = async (args: {
         ? process.env.OPENAI_MODEL
         : undefined;
 
-  const ctx: ToolRunContext = {
-    provider,
-    runCmdImpl,
-    flags: {
-      apply: state.flags.apply,
-      verify: state.flags.verify,
-      repair: state.flags.repair,
-      maxPatchesPerTurn: maxPatches
-    },
-    memory: {
-      repoRoot: process.cwd(),
-      specPath: state.specPath,
-      outDir: state.outDir,
-      patchPaths: [],
-      touchedPaths: []
-    }
-  };
-  const initialRuntimePaths = getRuntimePaths(ctx, state);
-  ctx.memory.runtimePaths = initialRuntimePaths;
-  ctx.memory.appDir = initialRuntimePaths.appDir;
-  ctx.memory.tauriDir = initialRuntimePaths.tauriDir;
-  state.runtimePaths = initialRuntimePaths;
+  const reviewPort =
+    args.humanReview || args.requestPlanChangeReview
+      ? {
+          humanReview: args.humanReview,
+          requestPlanChangeReview: args.requestPlanChangeReview
+        }
+      : undefined;
 
-  const audit = new AgentTurnAuditCollector(args.goal);
-  await audit.start(state.outDir, {
-    specPath: state.specPath,
-    outDir: state.outDir,
-    providerName: provider.name,
-    model: modelHint,
-    apply: state.flags.apply,
-    verify: state.flags.verify,
-    repair: state.flags.repair,
-    truncation: state.flags.truncation,
-    compactionThreshold: state.flags.compactionThreshold
-  });
-
-  let runError: unknown;
-  try {
-    await runPlanFirstAgent({
-      state,
-      provider,
-      registry,
-      ctx,
-      maxTurns,
-      maxToolCallsPerTurn,
-      audit,
-      policy,
-      humanReview: args.humanReview,
-      requestPlanChangeReview: args.requestPlanChangeReview,
-      onEvent: args.onEvent
-    });
-  } catch (error) {
-    runError = error;
-    state.status = "failed";
-    state.lastError = state.lastError ?? {
-      kind: "Unknown",
-      message: error instanceof Error ? error.message : "Unknown error"
-    };
-  }
-
-  const base = state.appDir ?? state.outDir;
-  const auditPath = await audit.flush(base, {
-    ok: state.status === "done",
-    verifyHistory: state.verifyHistory,
-    patchPaths: state.patchPaths,
-    touchedFiles: state.touchedFiles.slice(-200),
-    budgets: state.budgets,
-    lastError: state.lastError,
-    status: state.status,
+  return runCoreAgent({
+    goal: args.goal,
+    specPath: args.specPath,
+    outDir: args.outDir,
+    apply: args.apply,
+    verify: args.verify,
+    repair: args.repair,
+    maxTurns,
+    maxToolCallsPerTurn,
+    maxPatches,
+    truncation: args.truncation,
+    compactionThreshold: args.compactionThreshold,
     policy,
-    toolIndex: renderToolIndex(registry)
+    registry,
+    llm: provider,
+    commandRunner: runCmdImpl,
+    audit: new AgentTurnAuditCollector(args.goal),
+    humanReview: reviewPort,
+    modelHint,
+    runtimeRepoRoot: process.cwd(),
+    onEvent: args.onEvent
   });
-
-  if (runError) {
-    throw runError;
-  }
-
-  if (state.status === "done") {
-    args.onEvent?.({ type: "done", auditPath });
-    return {
-      ok: true,
-      summary: "Agent completed successfully",
-      auditPath,
-      patchPaths: state.patchPaths,
-      state
-    };
-  }
-
-  const message = state.lastError?.message ?? "max turns reached";
-  args.onEvent?.({ type: "failed", message, auditPath });
-  return {
-    ok: false,
-    summary: message,
-    auditPath,
-    patchPaths: state.patchPaths,
-    state
-  };
 };

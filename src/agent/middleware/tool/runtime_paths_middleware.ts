@@ -1,6 +1,6 @@
 import type { Middleware } from "../compose.js";
 import type { ToolCallContext, ToolCallResult } from "./types.js";
-import { getRuntimePaths } from "../../runtime/get_runtime_paths.js";
+import { getRuntimePaths } from "../../../core/runtime_paths/getRuntimePaths.js";
 
 export const runtimePathsMiddleware: Middleware<ToolCallContext, ToolCallResult> = async (context, next) => {
   const runtimePaths = getRuntimePaths(context.ctx, context.state);

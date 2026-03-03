@@ -8,13 +8,14 @@ import { schemaMiddleware } from "../middleware/tool/schema_middleware.js";
 import type { ToolCallContext, ToolCallResult } from "../middleware/tool/types.js";
 import type { AgentPolicy } from "./policy/policy.js";
 import type { PlanTask } from "../plan/schema.js";
-import type { AgentState, AgentStatus } from "../types.js";
+import type { AgentState } from "../types.js";
 import { evaluateSuccessCriteriaWithTools } from "../evaluation/reviewer.js";
 import type { ToolRunContext, ToolSpec } from "../tools/types.js";
 import { setStateError, truncate } from "./errors.js";
 import type { AgentEvent } from "./events.js";
+import type { HumanReviewFn } from "../../core/agent/contracts.js";
 
-export type HumanReviewFn = (args: { reason: string; patchPaths: string[]; phase: AgentStatus }) => Promise<boolean>;
+export type { HumanReviewFn } from "../../core/agent/contracts.js";
 
 export type ExecutedToolCall = {
   ok: boolean;

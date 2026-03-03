@@ -1,0 +1,158 @@
+// Handles deterministic replan flow: propose change, gate decision, apply patch.
+import { evaluatePlanChange } from "../../agent/plan/gate.js";
+import { applyPlanChangePatch } from "../../agent/plan/patch.js";
+import type { AgentPolicy } from "./policy/policy.js";
+import { proposePlanChange } from "../../agent/planning/planner.js";
+import { PLAN_INSTRUCTIONS } from "../../agent/planning/prompts.js";
+import type { AgentState } from "../../agent/types.js";
+import type { LlmProvider } from "../../llm/provider.js";
+import { summarizeState } from "./state_summary.js";
+import { setStateError } from "./errors.js";
+import { recordPlanChange } from "./recorder.js";
+import type { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import type { PlanChangeRequestV2 } from "../../agent/plan/schema.js";
+import { interpretPlanChangeReview } from "./plan_change_review.js";
+import type { AgentEvent } from "./events.js";
+import type { PlanChangeReviewFn } from "./contracts.js";
+
+export const handleReplan = async (args: {
+  provider: LlmProvider;
+  state: AgentState;
+  policy: AgentPolicy;
+  failedTaskId: string;
+  failures: string[];
+  replans: number;
+  audit: AgentTurnAuditCollector;
+  turn: number;
+  requestPlanChangeReview: PlanChangeReviewFn;
+  onEvent?: (event: AgentEvent) => void;
+}): Promise<{ ok: boolean; replans: number }> => {
+  const { provider, state, policy } = args;
+  const currentPlan = state.planData;
+  if (!currentPlan) {
+    setStateError(state, "Config", "Missing current plan during replan");
+    state.status = "failed";
+    return { ok: false, replans: args.replans };
+  }
+
+  state.status = "replanning";
+  const changeProposal = await proposePlanChange({
+    provider,
+    goal: state.goal,
+    currentPlan,
+    policy,
+    stateSummary: {
+      ...(summarizeState(state) as Record<string, unknown>),
+      failedTask: args.failedTaskId,
+      failures: args.failures
+    },
+    failureEvidence: args.failures,
+    previousResponseId: state.lastResponseId,
+    instructions: PLAN_INSTRUCTIONS,
+    truncation: state.flags.truncation,
+    contextManagement:
+      typeof state.flags.compactionThreshold === "number"
+        ? [{ type: "compaction", compactThreshold: state.flags.compactionThreshold }]
+        : undefined
+  });
+  args.onEvent?.({ type: "replan_proposed" });
+
+  state.lastResponseId = changeProposal.responseId ?? state.lastResponseId;
+  state.planHistory?.push({ type: "change_request", request: changeProposal.changeRequest });
+
+  const gateResult = evaluatePlanChange({
+    request: changeProposal.changeRequest,
+    policy,
+    currentTaskCount: currentPlan.tasks.length
+  });
+
+  recordPlanChange({
+    audit: args.audit,
+    turn: args.turn,
+    llmRaw: changeProposal.raw,
+    previousResponseIdSent: changeProposal.previousResponseIdSent,
+    responseId: changeProposal.responseId,
+    usage: changeProposal.usage,
+    gateResult
+  });
+
+  state.planHistory?.push({ type: "change_gate_result", gateResult });
+  args.onEvent?.({
+    type: "replan_gate",
+    status: gateResult.status,
+    reason: gateResult.reason,
+    guidance: gateResult.guidance
+  });
+
+  if (gateResult.status === "denied") {
+    state.status = "failed";
+    setStateError(
+      state,
+      "Config",
+      `Plan change denied: ${gateResult.reason}. Guidance: ${gateResult.guidance}`
+    );
+    return { ok: false, replans: args.replans };
+  }
+
+  const policySummary = {
+    acceptanceLocked: policy.acceptance.locked,
+    techStackLocked: policy.tech_stack_locked,
+    allowedTools: policy.safety.allowed_tools
+  };
+
+  const userText = await args.requestPlanChangeReview({
+    request: changeProposal.changeRequest,
+    gateResult,
+    policySummary,
+    promptHint: "Use natural language: approve/reject this plan change. If rejecting, provide specific fix direction."
+  });
+  state.planHistory?.push({ type: "change_user_review_text", text: userText });
+  args.onEvent?.({ type: "replan_review_text", text: userText.length > 240 ? `${userText.slice(0, 240)}...` : userText });
+
+  const interpreted = await interpretPlanChangeReview({
+    provider,
+    request: changeProposal.changeRequest,
+    gateResult,
+    policySummary,
+    userInput: userText,
+    previousResponseId: state.lastResponseId,
+    truncation: state.flags.truncation,
+    contextManagement:
+      typeof state.flags.compactionThreshold === "number"
+        ? [{ type: "compaction", compactThreshold: state.flags.compactionThreshold }]
+        : undefined
+  });
+  state.lastResponseId = interpreted.responseId ?? state.lastResponseId;
+  state.planHistory?.push({ type: "change_review_outcome", outcome: interpreted.outcome });
+
+  if (interpreted.outcome.decision === "denied") {
+    state.status = "failed";
+    setStateError(
+      state,
+      "Config",
+      `Plan change denied by user review: ${interpreted.outcome.reason}. Guidance: ${interpreted.outcome.guidance}`
+    );
+    return { ok: false, replans: args.replans };
+  }
+
+  if (args.replans >= policy.budgets.max_replans) {
+    state.status = "failed";
+    setStateError(state, "Config", `Replan budget exceeded: ${args.replans} >= ${policy.budgets.max_replans}`);
+    return { ok: false, replans: args.replans };
+  }
+
+  if (!interpreted.outcome.patch || interpreted.outcome.patch.length === 0) {
+    state.status = "failed";
+    setStateError(state, "Config", "Approved plan review outcome did not provide a patch.");
+    return { ok: false, replans: args.replans };
+  }
+
+  const approvedPatchRequest: PlanChangeRequestV2 = {
+    ...changeProposal.changeRequest,
+    patch: interpreted.outcome.patch
+  };
+  state.planData = applyPlanChangePatch(currentPlan, approvedPatchRequest);
+  state.planVersion = (state.planVersion ?? 1) + 1;
+  args.onEvent?.({ type: "replan_applied", newVersion: state.planVersion });
+  return { ok: true, replans: args.replans + 1 };
+};

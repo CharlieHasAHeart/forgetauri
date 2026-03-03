@@ -1,0 +1,179 @@
+import { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import { renderToolIndex } from "../../agent/planning/tool_index.js";
+import { runPlanFirstAgent } from "./orchestrator.js";
+import { getRuntimePaths } from "../../core/runtime_paths/getRuntimePaths.js";
+import type { AgentEvent } from "./events.js";
+import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
+import type { AgentState } from "../../agent/types.js";
+import type { AgentPolicy } from "./policy/policy.js";
+import type { CommandRunnerPort } from "../../ports/CommandRunnerPort.js";
+import type { HumanReviewPort } from "../../ports/HumanReviewPort.js";
+import type { LlmPort } from "../../ports/LlmPort.js";
+
+export type CoreRunAgentArgs = {
+  goal: string;
+  specPath: string;
+  outDir: string;
+  apply: boolean;
+  verify: boolean;
+  repair: boolean;
+  maxTurns?: number;
+  maxToolCallsPerTurn?: number;
+  maxPatches?: number;
+  truncation?: "auto" | "disabled";
+  compactionThreshold?: number;
+  policy: AgentPolicy;
+  registry: Record<string, ToolSpec<any>>;
+  llm: LlmPort;
+  commandRunner: CommandRunnerPort;
+  audit?: AgentTurnAuditCollector;
+  humanReview?: HumanReviewPort;
+  modelHint?: string;
+  runtimeRepoRoot?: string;
+  onEvent?: (event: AgentEvent) => void;
+};
+
+export type CoreRunAgentResult = {
+  ok: boolean;
+  summary: string;
+  auditPath?: string;
+  patchPaths?: string[];
+  state: AgentState;
+};
+
+export const runAgent = async (args: CoreRunAgentArgs): Promise<CoreRunAgentResult> => {
+  const maxTurns = args.maxTurns ?? 16;
+  const maxToolCallsPerTurn = args.maxToolCallsPerTurn ?? 4;
+  const maxPatches = args.maxPatches ?? 8;
+  const truncation = args.truncation ?? "auto";
+  const compactionThreshold = args.compactionThreshold;
+
+  const state: AgentState = {
+    goal: args.goal,
+    specPath: args.specPath,
+    outDir: args.outDir,
+    flags: {
+      apply: args.apply,
+      verify: args.verify,
+      repair: args.repair,
+      truncation,
+      compactionThreshold
+    },
+    status: "planning",
+    usedLLM: false,
+    verifyHistory: [],
+    budgets: {
+      maxTurns,
+      maxPatches,
+      usedTurns: 0,
+      usedPatches: 0,
+      usedRepairs: 0
+    },
+    patchPaths: [],
+    humanReviews: [],
+    lastDeterministicFixes: [],
+    repairKnownChecked: false,
+    touchedFiles: [],
+    toolCalls: [],
+    toolResults: [],
+    planHistory: []
+  };
+
+  const ctx: ToolRunContext = {
+    provider: args.llm,
+    runCmdImpl: args.commandRunner,
+    flags: {
+      apply: state.flags.apply,
+      verify: state.flags.verify,
+      repair: state.flags.repair,
+      maxPatchesPerTurn: maxPatches
+    },
+    memory: {
+      repoRoot: args.runtimeRepoRoot ?? process.cwd(),
+      specPath: state.specPath,
+      outDir: state.outDir,
+      patchPaths: [],
+      touchedPaths: []
+    }
+  };
+  const initialRuntimePaths = getRuntimePaths(ctx, state);
+  ctx.memory.runtimePaths = initialRuntimePaths;
+  ctx.memory.appDir = initialRuntimePaths.appDir;
+  ctx.memory.tauriDir = initialRuntimePaths.tauriDir;
+  state.runtimePaths = initialRuntimePaths;
+
+  const audit = args.audit ?? new AgentTurnAuditCollector(args.goal);
+  await audit.start(state.outDir, {
+    specPath: state.specPath,
+    outDir: state.outDir,
+    providerName: args.llm.name,
+    model: args.modelHint,
+    apply: state.flags.apply,
+    verify: state.flags.verify,
+    repair: state.flags.repair,
+    truncation: state.flags.truncation,
+    compactionThreshold: state.flags.compactionThreshold
+  });
+
+  let runError: unknown;
+  try {
+    await runPlanFirstAgent({
+      state,
+      provider: args.llm,
+      registry: args.registry,
+      ctx,
+      maxTurns,
+      maxToolCallsPerTurn,
+      audit,
+      policy: args.policy,
+      humanReview: args.humanReview?.humanReview,
+      requestPlanChangeReview: args.humanReview?.requestPlanChangeReview,
+      onEvent: args.onEvent ?? args.humanReview?.onEvent
+    });
+  } catch (error) {
+    runError = error;
+    state.status = "failed";
+    state.lastError = state.lastError ?? {
+      kind: "Unknown",
+      message: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+
+  const base = state.appDir ?? state.outDir;
+  const auditPath = await audit.flush(base, {
+    ok: state.status === "done",
+    verifyHistory: state.verifyHistory,
+    patchPaths: state.patchPaths,
+    touchedFiles: state.touchedFiles.slice(-200),
+    budgets: state.budgets,
+    lastError: state.lastError,
+    status: state.status,
+    policy: args.policy,
+    toolIndex: renderToolIndex(args.registry)
+  });
+
+  if (runError) {
+    throw runError;
+  }
+
+  if (state.status === "done") {
+    (args.onEvent ?? args.humanReview?.onEvent)?.({ type: "done", auditPath });
+    return {
+      ok: true,
+      summary: "Agent completed successfully",
+      auditPath,
+      patchPaths: state.patchPaths,
+      state
+    };
+  }
+
+  const message = state.lastError?.message ?? "max turns reached";
+  (args.onEvent ?? args.humanReview?.onEvent)?.({ type: "failed", message, auditPath });
+  return {
+    ok: false,
+    summary: message,
+    auditPath,
+    patchPaths: state.patchPaths,
+    state
+  };
+};
