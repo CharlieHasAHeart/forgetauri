@@ -29,7 +29,7 @@ export const defaultAgentPolicy = (args: {
 }): AgentPolicy => ({
   tech_stack: {
     app: "desktop",
-    frontend: "svelte+ts",
+    frontend: "react+ts",
     backend: "tauri+rust",
     database: "sqlite+rusqlite"
   },

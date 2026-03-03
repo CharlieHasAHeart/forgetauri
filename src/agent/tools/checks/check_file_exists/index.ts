@@ -50,7 +50,7 @@ export const toolPackage: ToolPackage<z.infer<typeof inputSchema>, z.infer<typeo
     examples: [
       {
         title: "Check generated file",
-        toolCall: { name: "tool_check_file_exists", input: { base: "appDir", path: "src/App.svelte" } },
+        toolCall: { name: "tool_check_file_exists", input: { base: "appDir", path: "src/App.tsx" } },
         expected: "Returns ok=true when file exists"
       }
     ]

@@ -22,6 +22,7 @@ export const classifyPath = (relativePath: string): Zone => {
     isUnder(normalized, "src/lib/custom") ||
     isUnder(normalized, "src-tauri/src/custom") ||
     normalized === "src/App.svelte" ||
+    normalized === "src/App.tsx" ||
     normalized === "src-tauri/src/main.rs"
   ) {
     return "user";

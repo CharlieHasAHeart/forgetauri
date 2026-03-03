@@ -6,7 +6,7 @@ import { AgentTurnAuditCollector } from "../core/agent/audit.js";
  * ForgeAuri profile is the single assembly source for app-level defaults:
  * ports, audit collector, registry loading and policy construction.
  *
- * This is intentionally ForgeAuri-specific (Tauri v2 + Svelte + Rust + SQLite).
+ * This is intentionally ForgeAuri-specific (Tauri v2 + React + Rust + SQLite).
  */
 export const createForgeAuriProfile = <TLlm, TCommandRunner, TRegistryDeps = unknown>(args: {
   deps?: {

@@ -33,10 +33,13 @@ export const templatePackageJson = (appName: string): string => `{
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
-    "svelte": "^5.39.6"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
     "@tauri-apps/cli": "^2.8.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"
@@ -53,17 +56,18 @@ export const templateTsConfig = (): string => `{
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["svelte"]
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts", "vite.config.ts"]
 }
 `;
 
 export const templateViteConfig = (): string => `import { defineConfig } from "vite";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [react()],
   clearScreen: false,
   server: {
     port: 1420,
@@ -88,20 +92,21 @@ export const templateIndexHtml = (appName: string): string => `<!doctype html>
     <title>${escapeJson(appName)}</title>
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
 `;
 
-export const templateMainTs = (): string => `import { mount } from "svelte";
-import App from "./App.svelte";
+export const templateMainTsx = (): string => `import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
 
-const app = mount(App, {
-  target: document.getElementById("app")!
-});
-
-export default app;
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
 `;
 
 export const templateTauriApi = (): string => `import { invoke } from "@tauri-apps/api/core";
@@ -147,52 +152,40 @@ export const invokeCommand = async <T>(command: string, args?: Record<string, un
 };
 `;
 
-export const templateAppSvelte = (): string => `<script lang="ts">
-  import { invokeCommand } from "./lib/api/tauri";
+export const templateAppReact = (): string => `import { useState } from "react";
+import { invokeCommand } from "./lib/api/tauri";
 
-  let result = "";
-  let error = "";
-  let loading = false;
+export default function App() {
+  const [result, setResult] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const ping = async () => {
-    loading = true;
-    error = "";
-    result = "";
+    setLoading(true);
+    setError("");
+    setResult("");
 
     try {
-      result = await invokeCommand<string>("ping");
+      const next = await invokeCommand<string>("ping");
+      setResult(next);
     } catch (err) {
-      error = err instanceof Error ? err.message : "Unknown error";
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
-      loading = false;
+      setLoading(false);
     }
   };
-</script>
 
-<main>
-  <h1>Tauri Ping Demo</h1>
-  <button on:click={ping} disabled={loading}>{loading ? "Pinging..." : "Ping"}</button>
-
-  {#if result}
-    <p data-testid="result">Result: {result}</p>
-  {/if}
-
-  {#if error}
-    <p data-testid="error">Error: {error}</p>
-  {/if}
-</main>
-
-<style>
-  main {
-    font-family: sans-serif;
-    margin: 2rem;
-  }
-
-  button {
-    margin-top: 1rem;
-    padding: 0.5rem 1rem;
-  }
-</style>
+  return (
+    <main style={{ fontFamily: "sans-serif", margin: "2rem" }}>
+      <h1>Tauri Ping Demo</h1>
+      <button onClick={ping} disabled={loading} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>
+        {loading ? "Pinging..." : "Ping"}
+      </button>
+      {result ? <p data-testid="result">Result: {result}</p> : null}
+      {error ? <p data-testid="error">Error: {error}</p> : null}
+    </main>
+  );
+}
 `;
 
 export const templateCargoToml = (appName: string): string => `[package]
@@ -347,8 +340,8 @@ export const templateFiles = (ir: SpecIR): Record<string, string> => {
     "tsconfig.json": templateTsConfig(),
     "vite.config.ts": templateViteConfig(),
     "index.html": templateIndexHtml(appName),
-    "src/main.ts": templateMainTs(),
-    "src/App.svelte": templateAppSvelte(),
+    "src/main.tsx": templateMainTsx(),
+    "src/App.tsx": templateAppReact(),
     "src/lib/api/tauri.ts": templateTauriApi(),
     "src-tauri/Cargo.toml": templateCargoToml(appName),
     "src-tauri/build.rs": templateBuildRs(),

@@ -45,7 +45,7 @@ const classifyError = (step: VerifyStepResult["name"], stderr: string): ErrorKin
 
 const suggestionFor = (kind: ErrorKind): string => {
   if (kind === "Deps") return "Install dependencies again and check network/proxy/registry access.";
-  if (kind === "TS") return "Fix TypeScript/Svelte compile errors first.";
+  if (kind === "TS") return "Fix TypeScript/React compile errors first.";
   if (kind === "Rust") return "Fix Rust compile or Cargo dependency errors.";
   if (kind === "Tauri") return "Fix Tauri toolchain/config; ensure tauri cli and Rust targets are available.";
   if (kind === "Config") return "Validate config files (package.json/tauri.conf/Cargo.toml).";
