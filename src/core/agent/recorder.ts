@@ -1,5 +1,5 @@
 // Centralized audit event record helpers for plan/task/replan events.
-import type { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import type { AgentTurnAuditCollector } from "./audit.js";
 
 export const recordPlanProposed = (args: {
   audit: AgentTurnAuditCollector;

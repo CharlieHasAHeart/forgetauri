@@ -5,7 +5,7 @@ import type { AgentPolicy } from "./policy/policy.js";
 import type { AgentState } from "../../agent/types.js";
 import type { LlmProvider } from "../../llm/provider.js";
 import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
-import type { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import type { AgentTurnAuditCollector } from "./audit.js";
 import { recordPlanProposed } from "./recorder.js";
 import { summarizeState } from "./state_summary.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "./contracts.js";

@@ -1,4 +1,4 @@
-import { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import { AgentTurnAuditCollector } from "./audit.js";
 import { renderToolIndex } from "../../agent/planning/tool_index.js";
 import { runPlanFirstAgent } from "./orchestrator.js";
 import { getRuntimePaths } from "../../core/runtime_paths/getRuntimePaths.js";

@@ -4,7 +4,7 @@ import type { PlanTask } from "../../agent/plan/schema.js";
 import type { AgentPolicy } from "./policy/policy.js";
 import type { AgentState } from "../../agent/types.js";
 import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
-import type { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import type { AgentTurnAuditCollector } from "./audit.js";
 import { setUsedTurn } from "./budgets.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "./contracts.js";
 import { setStateError } from "./errors.js";

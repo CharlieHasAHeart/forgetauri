@@ -7,7 +7,7 @@ import { proposeToolCallsForTask } from "../../agent/planning/tool_call_planner.
 import type { AgentPolicy } from "./policy/policy.js";
 import type { AgentState } from "../../agent/types.js";
 import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
-import type { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import type { AgentTurnAuditCollector } from "./audit.js";
 import { executeActionPlan } from "./executor.js";
 import { setStateError } from "./errors.js";
 import type { AgentEvent } from "./events.js";

@@ -9,7 +9,7 @@ import { createDefaultRegistry, loadDefaultRegistryWithDocs } from "./defaultReg
 import type { HumanReviewPort } from "../ports/HumanReviewPort.js";
 import type { LlmPort } from "../ports/LlmPort.js";
 import type { CommandRunnerPort } from "../ports/CommandRunnerPort.js";
-import type { AgentTurnAuditCollector } from "../runtime/audit/index.js";
+import type { AgentTurnAuditCollector } from "../core/agent/audit.js";
 
 export type CreateAgentAppDeps = {
   llm?: LlmPort;

@@ -9,7 +9,7 @@ import type { LlmProvider } from "../../llm/provider.js";
 import { summarizeState } from "./state_summary.js";
 import { setStateError } from "./errors.js";
 import { recordPlanChange } from "./recorder.js";
-import type { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import type { AgentTurnAuditCollector } from "./audit.js";
 import type { PlanChangeRequestV2 } from "../../agent/plan/schema.js";
 import { interpretPlanChangeReview } from "./plan_change_review.js";
 import type { AgentEvent } from "./events.js";

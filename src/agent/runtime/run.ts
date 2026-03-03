@@ -1,4 +1,4 @@
-import { AgentTurnAuditCollector } from "../../runtime/audit/index.js";
+import { AgentTurnAuditCollector } from "../../core/agent/audit.js";
 import { getProviderFromEnv } from "../../llm/index.js";
 import type { LlmProvider } from "../../llm/provider.js";
 import { runCmd, type CmdResult } from "../../runner/runCmd.js";
