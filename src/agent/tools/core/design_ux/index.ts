@@ -3,6 +3,7 @@ import type { LlmProvider } from "../../../../llm/provider.js";
 import { contractForUxV1Schema } from "../../../design/contract/views.js";
 import { uxDesignV1Schema, type UXDesignV1 } from "../../../design/ux/schema.js";
 import type { ToolPackage } from "../../types.js";
+import { buildDesignUxUserPrompt, DESIGN_UX_SYSTEM_PROMPT } from "../../../../app/prompts/forgeauri/design_ux.js";
 
 const inputSchema = z.object({
   goal: z.string().min(1),
@@ -207,18 +208,16 @@ export const runDesignUx = async (args: {
   const messages = [
     {
       role: "system" as const,
-      content:
-        "You are a UX architect for Tauri v2 desktop app. " +
-        "Design IA/screens/actions/states based on provided command contracts. " +
-        "Return strict JSON only matching UXDesignV1 schema."
+      content: DESIGN_UX_SYSTEM_PROMPT
     },
     {
       role: "user" as const,
-      content:
-        `Goal:\n${args.goal}\n\n` +
-        `Spec path:\n${args.specPath}\n\n` +
-        `Project root:\n${args.projectRoot ?? "<none>"}\n\n` +
-        `Contract:\n${JSON.stringify(args.contract, null, 2)}`
+      content: buildDesignUxUserPrompt({
+        goal: args.goal,
+        specPath: args.specPath,
+        projectRoot: args.projectRoot,
+        contractJson: JSON.stringify(args.contract, null, 2)
+      })
     }
   ];
 

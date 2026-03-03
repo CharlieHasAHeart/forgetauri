@@ -3,6 +3,10 @@ import type { LlmProvider } from "../../../../llm/provider.js";
 import { contractForDeliveryV1Schema } from "../../../design/contract/views.js";
 import { deliveryDesignV1Schema, type DeliveryDesignV1 } from "../../../design/delivery/schema.js";
 import type { ToolPackage } from "../../types.js";
+import {
+  buildDesignDeliveryUserPrompt,
+  DESIGN_DELIVERY_SYSTEM_PROMPT
+} from "../../../../app/prompts/forgeauri/design_delivery.js";
 
 const inputSchema = z.object({
   goal: z.string().min(1),
@@ -146,19 +150,16 @@ export const runDesignDelivery = async (args: {
   const messages = [
     {
       role: "system" as const,
-      content:
-        "You are a release and delivery architect for Tauri projects. " +
-        "Return JSON delta only for verifyPolicy/preflight/assets. " +
-        "Do not return full DeliveryDesignV1; deterministic merge will produce final schema."
+      content: DESIGN_DELIVERY_SYSTEM_PROMPT
     },
     {
       role: "user" as const,
-      content:
-        `Goal:\n${args.goal}\n\n` +
-        `Project root:\n${args.projectRoot ?? "<none>"}\n\n` +
-        `Contract:\n${JSON.stringify(args.contract, null, 2)}\n\n` +
-        `Deterministic delivery seed:\n${JSON.stringify(seedDelivery, null, 2)}\n\n` +
-        "Constraints:\n- Verify policy must be practical for pnpm/cargo/tauri\n- Asset checks should include icon requirements"
+      content: buildDesignDeliveryUserPrompt({
+        goal: args.goal,
+        projectRoot: args.projectRoot,
+        contractJson: JSON.stringify(args.contract, null, 2),
+        seedDeliveryJson: JSON.stringify(seedDelivery, null, 2)
+      })
     }
   ];
 

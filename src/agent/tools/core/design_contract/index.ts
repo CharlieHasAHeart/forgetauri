@@ -5,6 +5,10 @@ import type { LlmProvider } from "../../../../llm/provider.js";
 import { parseSpecFromRaw } from "../../../../spec/loadSpec.js";
 import type { SpecIR } from "../../../../spec/schema.js";
 import type { ToolPackage } from "../../types.js";
+import {
+  buildDesignContractUserPrompt,
+  DESIGN_CONTRACT_SYSTEM_PROMPT
+} from "../../../../app/prompts/forgeauri/design_contract.js";
 
 const inputSchema = z.object({
   goal: z.string().min(1),
@@ -337,21 +341,17 @@ export const runDesignContract = async (args: {
   const messages = [
     {
       role: "system" as const,
-      content:
-        "You are a software architect for a Tauri v2 + Rust + SQLite desktop app. " +
-        "Return JSON delta only for app/commands/dataModel/acceptance refinements. " +
-        "Do not return full contract; deterministic merge will produce final ContractDesignV1."
+      content: DESIGN_CONTRACT_SYSTEM_PROMPT
     },
     {
       role: "user" as const,
-      content:
-        `Goal:\n${args.goal}\n\n` +
-        `Spec path:\n${args.specPath}\n\n` +
-        `Project root (optional context):\n${args.projectRoot ?? "<none>"}\n\n` +
-        `Raw spec:\n${rawSpecText}\n\n` +
-        `Deterministic seed contract (must remain schema-valid):\n${seedContractText}\n\n` +
-        "Stack constraints:\n- Tauri v2\n- Rust commands\n- SQLite via rusqlite\n- Deterministic contract names in snake_case\n\n" +
-        "Return strict JSON only with fields you want to refine: app, commands, dataModel, acceptance."
+      content: buildDesignContractUserPrompt({
+        goal: args.goal,
+        specPath: args.specPath,
+        projectRoot: args.projectRoot,
+        rawSpecText,
+        seedContractText
+      })
     }
   ];
 

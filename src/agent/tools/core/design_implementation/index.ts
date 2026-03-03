@@ -4,6 +4,10 @@ import { contractForImplementationV1Schema } from "../../../design/contract/view
 import { implementationDesignV1Schema, type ImplementationDesignV1 } from "../../../design/implementation/schema.js";
 import { uxDesignV1Schema } from "../../../design/ux/schema.js";
 import type { ToolPackage } from "../../types.js";
+import {
+  buildDesignImplementationUserPrompt,
+  DESIGN_IMPLEMENTATION_SYSTEM_PROMPT
+} from "../../../../app/prompts/forgeauri/design_implementation.js";
 
 const inputSchema = z.object({
   goal: z.string().min(1),
@@ -173,20 +177,17 @@ export const runDesignImplementation = async (args: {
   const messages = [
     {
       role: "system" as const,
-      content:
-        "You are a Rust + Tauri implementation architect. " +
-        "Return JSON delta only: services/repos/errorCodes/frontend preferences. " +
-        "Do not return full schema document; deterministic merge will produce final ImplementationDesignV1."
+      content: DESIGN_IMPLEMENTATION_SYSTEM_PROMPT
     },
     {
       role: "user" as const,
-      content:
-        `Goal:\n${args.goal}\n\n` +
-        `Project root:\n${args.projectRoot ?? "<none>"}\n\n` +
-        `Contract:\n${JSON.stringify(args.contract, null, 2)}\n\n` +
-        `UX (optional):\n${args.ux ? JSON.stringify(args.ux, null, 2) : "<none>"}\n\n` +
-        `Deterministic implementation seed (final schema-compliant base):\n${JSON.stringify(seed, null, 2)}\n\n` +
-        "Return strict JSON only with fields: services, repos, errorCodes, frontend."
+      content: buildDesignImplementationUserPrompt({
+        goal: args.goal,
+        projectRoot: args.projectRoot,
+        contractJson: JSON.stringify(args.contract, null, 2),
+        uxJson: args.ux ? JSON.stringify(args.ux, null, 2) : "<none>",
+        seedJson: JSON.stringify(seed, null, 2)
+      })
     }
   ];
 
