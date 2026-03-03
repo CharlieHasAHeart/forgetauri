@@ -97,9 +97,7 @@ export const runTaskAttempt = async (args: {
       args.state.lastResponseId = proposal.responseId ?? args.state.lastResponseId;
 
       const gated = gateToolCalls({
-        toolCalls: proposal.toolCalls,
-        maxToolCallsPerTurn: args.maxToolCallsPerTurn,
-        policyMaxActionsPerTask: args.policy.budgets.max_actions_per_task
+        toolCalls: proposal.toolCalls
       });
       if (gated.ok) {
         toolCalls = gated.toolCalls;

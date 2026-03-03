@@ -9,11 +9,8 @@ export type ToolCallGateResult =
 
 export const gateToolCalls = (args: {
   toolCalls: ToolCall[];
-  maxToolCallsPerTurn: number;
-  policyMaxActionsPerTask: number;
 }): ToolCallGateResult => {
-  const limit = Math.min(args.maxToolCallsPerTurn, args.policyMaxActionsPerTask);
-  const sliced = (args.toolCalls ?? []).slice(0, limit);
+  const sliced = args.toolCalls ?? [];
 
   for (let i = 0; i < sliced.length; i += 1) {
     const call = sliced[i] as any;

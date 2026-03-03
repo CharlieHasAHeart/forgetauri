@@ -148,7 +148,7 @@ describe("tool_call_planner", () => {
     expect(provider.completeCalls).toBe(1);
   });
 
-  test("clips tool calls to maxToolCallsPerTurn", async () => {
+  test("does not clip tool calls per task", async () => {
     const provider = new NativeToolCallProvider();
     provider.completeToolCalls = async () => ({
       toolCalls: [
@@ -172,7 +172,7 @@ describe("tool_call_planner", () => {
       maxToolCallsPerTurn: 1
     });
 
-    expect(out.toolCalls).toHaveLength(1);
+    expect(out.toolCalls).toHaveLength(3);
   });
 
   test("exposes full tool set to planner", async () => {

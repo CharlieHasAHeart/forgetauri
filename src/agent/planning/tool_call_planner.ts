@@ -13,13 +13,11 @@ const toolCallSchema = z.object({
 
 const normalizeCalls = (
   calls: Array<{ name: string; input: unknown }>,
-  registry: Record<string, ToolSpec<any>>,
-  maxCalls: number
+  registry: Record<string, ToolSpec<any>>
 ): Array<{ name: string; input: unknown }> => {
   const allowed = new Set(Object.keys(registry));
   return calls
     .filter((call) => allowed.has(call.name))
-    .slice(0, maxCalls)
     .map((call) => ({ name: call.name, input: call.input }));
 };
 
@@ -44,7 +42,6 @@ export const proposeToolCallsForTask = async (args: {
   previousResponseIdSent?: string;
   mode: "native_tool_calling" | "json_fallback";
 }> => {
-  const maxCalls = Math.min(args.maxToolCallsPerTurn, args.policy.budgets.max_actions_per_task);
   const taskRegistry = args.registry;
 
   const toolEntries = Object.entries(taskRegistry)
@@ -75,7 +72,7 @@ export const proposeToolCallsForTask = async (args: {
           2
         )}\n\n` +
         `Tool index:\n${renderToolIndex(taskRegistry)}\n\n` +
-        `Constraints:\n- maxToolCalls=${maxCalls}\n- Only use tool names from the provided tool list.\n` +
+        `Constraints:\n- No per-task limit on tool call count.\n- Only use tool names from the provided tool list.\n` +
         "- For path-like fields (specPath/outDir/projectRoot), use the authoritative runtime context values exactly.\n"
     }
   ];
@@ -95,7 +92,7 @@ export const proposeToolCallsForTask = async (args: {
         truncation: args.truncation,
         contextManagement: args.contextManagement
       });
-      const toolCalls = normalizeCalls(result.toolCalls ?? [], taskRegistry, maxCalls);
+      const toolCalls = normalizeCalls(result.toolCalls ?? [], taskRegistry);
       return {
         toolCalls,
         raw: result.raw ?? result.text ?? JSON.stringify(toolCalls, null, 2),
@@ -110,7 +107,7 @@ export const proposeToolCallsForTask = async (args: {
   }
 
   const fallbackSchema = z.object({
-    toolCalls: z.array(toolCallSchema).max(maxCalls)
+    toolCalls: z.array(toolCallSchema)
   });
 
   const result = await llmJson({
@@ -127,7 +124,7 @@ export const proposeToolCallsForTask = async (args: {
   });
 
   return {
-    toolCalls: normalizeCalls(result.data.toolCalls, taskRegistry, maxCalls),
+    toolCalls: normalizeCalls(result.data.toolCalls, taskRegistry),
     raw: result.raw,
     responseId: result.responseId,
     usage: result.usage,
