@@ -234,6 +234,10 @@ const evaluateVerifyAcceptancePipelineIntent = (
   const commandEvents = input.evidence.filter(
     (event): event is Extract<EvidenceEvent, { event_type: "command_ran" }> => event.event_type === "command_ran"
   );
+  const skippedStepEvents = input.evidence.filter(
+    (event): event is Extract<EvidenceEvent, { event_type: "acceptance_step_skipped" }> =>
+      event.event_type === "acceptance_step_skipped"
+  );
   const matchesStep = (
     step: AcceptanceStepRequirement,
     event: Extract<EvidenceEvent, { event_type: "command_ran" }>
@@ -250,6 +254,17 @@ const evaluateVerifyAcceptancePipelineIntent = (
 
   const satisfied: AcceptanceStepRequirement[] = [];
   const missing: AcceptanceStepRequirement[] = [];
+  const isOptionalSkipSatisfied = (step: AcceptanceStepRequirement): { ok: boolean; reason?: string } => {
+    const matched = skippedStepEvents.find(
+      (event) =>
+        event.pipeline_id === pipeline.id &&
+        event.command_id === step.command_id &&
+        event.step_id === `${pipeline.id}:${step.command_id}`
+    );
+    if (!matched) return { ok: false };
+    diagnostics.push(`optional step skipped: ${step.command_id} reason=${matched.reason}`);
+    return { ok: true, reason: matched.reason };
+  };
 
   if (strictOrder) {
     let cursor = 0;
@@ -266,7 +281,12 @@ const evaluateVerifyAcceptancePipelineIntent = (
         satisfied.push(step);
         cursor = foundIndex + 1;
       } else {
-        if (!item.optional) {
+        if (item.optional) {
+          const optionalSkip = isOptionalSkipSatisfied(step);
+          if (optionalSkip.ok) {
+            satisfied.push(step);
+          }
+        } else {
           missing.push(step);
         }
       }
@@ -274,8 +294,16 @@ const evaluateVerifyAcceptancePipelineIntent = (
   } else {
     for (const item of requiredSteps) {
       const step = item.requirement;
-      if (commandEvents.some((event) => matchesStep(step, event))) satisfied.push(step);
-      else if (!item.optional) missing.push(step);
+      if (commandEvents.some((event) => matchesStep(step, event))) {
+        satisfied.push(step);
+      } else if (item.optional) {
+        const optionalSkip = isOptionalSkipSatisfied(step);
+        if (optionalSkip.ok) {
+          satisfied.push(step);
+        }
+      } else {
+        missing.push(step);
+      }
     }
   }
 
