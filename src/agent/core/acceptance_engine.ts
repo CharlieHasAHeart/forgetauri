@@ -20,6 +20,7 @@ import {
 import type { WorkspaceSnapshot } from "./workspace_snapshot.js";
 import { getAcceptanceCommand, getAcceptancePipeline } from "./acceptance_catalog.js";
 import { canonicalizeCwd } from "./cwd_normalize.js";
+import { resolveCwdFromPolicy } from "./cwd_policy.js";
 
 export type EvaluationResult = {
   status: "pending" | "satisfied" | "failed";
@@ -180,19 +181,6 @@ const evaluateVerifyCommandIntent = (input: Omit<EvalInput, "intent"> & { intent
   };
 };
 
-const resolveCwd = (
-  policy: { cwd_policy: "repo_root" | "app_dir" | "tauri_dir" | { explicit: string } },
-  runtime: EvalInput["runtime"]
-): string => {
-  const repoRoot = runtime?.repoRoot ?? process.cwd();
-  const appDir = runtime?.appDir ?? "./generated/app";
-  const tauriDir = runtime?.tauriDir ?? `${appDir}/src-tauri`;
-  if (typeof policy.cwd_policy === "object") return canonicalizeCwd(policy.cwd_policy.explicit, repoRoot);
-  if (policy.cwd_policy === "repo_root") return canonicalizeCwd(repoRoot, repoRoot);
-  if (policy.cwd_policy === "app_dir") return canonicalizeCwd(appDir, repoRoot);
-  return canonicalizeCwd(tauriDir, repoRoot);
-};
-
 const evaluateVerifyAcceptancePipelineIntent = (
   input: Omit<EvalInput, "intent"> & { intent: VerifyAcceptancePipelineIntent }
 ): EvaluationResult => {
@@ -212,6 +200,11 @@ const evaluateVerifyAcceptancePipelineIntent = (
     diagnostics.push("runtime paths incomplete; used fallback repoRoot/appDir/tauriDir");
   }
   const repoRoot = input.runtime?.repoRoot ?? process.cwd();
+  const runtimePaths = {
+    repoRoot,
+    appDir: input.runtime?.appDir ?? "./generated/app",
+    tauriDir: input.runtime?.tauriDir ?? `${input.runtime?.appDir ?? "./generated/app"}/src-tauri`
+  };
   const requiredSteps: Array<{ requirement: AcceptanceStepRequirement; optional: boolean }> = [];
 
   for (const step of pipeline.steps) {
@@ -232,7 +225,7 @@ const evaluateVerifyAcceptancePipelineIntent = (
         command_id: command.id,
         resolved_cmd: command.cmd,
         resolved_args: command.args,
-        resolved_cwd: resolveCwd(command, input.runtime),
+        resolved_cwd: resolveCwdFromPolicy(command.cwd_policy, runtimePaths),
         expect_exit_code: command.expect_exit_code
       }
     });
@@ -244,12 +237,16 @@ const evaluateVerifyAcceptancePipelineIntent = (
   const matchesStep = (
     step: AcceptanceStepRequirement,
     event: Extract<EvidenceEvent, { event_type: "command_ran" }>
-  ): boolean =>
-    event.cmd === step.resolved_cmd &&
-    sameArgs(event.args, step.resolved_args) &&
-    canonicalizeCwd(event.cwd, repoRoot) === canonicalizeCwd(step.resolved_cwd, repoRoot) &&
-    event.exit_code === step.expect_exit_code &&
-    event.ok === true;
+  ): boolean => {
+    if (event.command_id !== undefined && event.command_id !== step.command_id) return false;
+    return (
+      event.cmd === step.resolved_cmd &&
+      sameArgs(event.args, step.resolved_args) &&
+      canonicalizeCwd(event.cwd, repoRoot) === canonicalizeCwd(step.resolved_cwd, repoRoot) &&
+      event.exit_code === step.expect_exit_code &&
+      event.ok === true
+    );
+  };
 
   const satisfied: AcceptanceStepRequirement[] = [];
   const missing: AcceptanceStepRequirement[] = [];

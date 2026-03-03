@@ -5,7 +5,8 @@ import type { ToolPackage } from "../../types.js";
 const inputSchema = z.object({
   cwd: z.string().min(1),
   cmd: z.string().min(1),
-  args: z.array(z.string())
+  args: z.array(z.string()),
+  command_id: z.string().min(1).optional()
 });
 
 const outputSchema = z.object({

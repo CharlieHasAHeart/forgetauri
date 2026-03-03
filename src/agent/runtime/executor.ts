@@ -113,6 +113,7 @@ export const executeToolCall = async (args: {
     const cmd = typeof parsedInput.cmd === "string" ? parsedInput.cmd : "";
     const args = Array.isArray(parsedInput.args) ? parsedInput.args.map((item) => String(item)) : [];
     const cwd = typeof parsedInput.cwd === "string" ? parsedInput.cwd : "";
+    const commandId = typeof parsedInput.command_id === "string" ? parsedInput.command_id : undefined;
     const exitCode = safeInt(data.code ?? data.exitCode);
     if (!cmd || !cwd || exitCode === undefined) return;
     const runtimePaths = getRuntimePaths(ctx, state);
@@ -123,6 +124,7 @@ export const executeToolCall = async (args: {
       turn,
       task_id: taskId,
       call_id: callId,
+      command_id: commandId,
       cmd,
       args,
       cwd: canonicalCwd,

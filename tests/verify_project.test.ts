@@ -30,19 +30,18 @@ describe("tool_verify_project", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.results.some((step) => step.name === "install_retry" && !step.skipped)).toBe(true);
+    expect(result.results.some((step) => step.name === "install_retry" && step.skipped)).toBe(true);
     expect(result.results.some((step) => step.name === "build_retry" && !step.skipped)).toBe(true);
     expect(calls.map((c) => `${c.cmd} ${c.args.join(" ")}`)).toEqual([
       "pnpm install",
       "pnpm build",
-      "pnpm install",
       "pnpm build",
       "cargo check",
       "pnpm tauri --help",
       "pnpm tauri build"
     ]);
     expect(calls[0]?.cwd).toBe(root);
-    expect(calls[4]?.cwd).toBe(join(root, "src-tauri"));
+    expect(calls[3]?.cwd).toBe(join(root, "src-tauri"));
   });
 
   test("always runs tauri build after cargo check", async () => {

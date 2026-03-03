@@ -1,3 +1,5 @@
+// desktop_tauri_default is the golden desktop acceptance pipeline.
+// verify_project execution and acceptance verification must both use this catalog as the single source of truth.
 export type AcceptanceCommand = {
   id: string;
   cmd: "pnpm" | "cargo" | "tauri" | "node";
@@ -7,11 +9,20 @@ export type AcceptanceCommand = {
   description: string;
 };
 
+export type AcceptancePipelineExecution = {
+  retries?: Partial<Record<string, { maxAttempts: number; retryOn?: "nonzero_exit" | "deps_signal" | "always" }>>;
+  prechecks?: Array<
+    | { kind: "skip_if_exists"; path: string; command_id: string }
+    | { kind: "skip_if_cmd_ran_ok"; command_id: string }
+  >;
+};
+
 export type AcceptancePipeline = {
   id: string;
   description: string;
   steps: Array<{ command_id: string; optional?: boolean }>;
   strict_order?: boolean;
+  execution?: AcceptancePipelineExecution;
 };
 
 const acceptanceCommands: AcceptanceCommand[] = [
@@ -69,7 +80,17 @@ const acceptancePipelines: AcceptancePipeline[] = [
       { command_id: "pnpm_tauri_help" },
       { command_id: "pnpm_tauri_build" }
     ],
-    strict_order: false
+    strict_order: false,
+    execution: {
+      retries: {
+        pnpm_install: { maxAttempts: 2, retryOn: "nonzero_exit" },
+        pnpm_build: { maxAttempts: 2, retryOn: "deps_signal" },
+        cargo_check: { maxAttempts: 1, retryOn: "nonzero_exit" },
+        pnpm_tauri_help: { maxAttempts: 1, retryOn: "nonzero_exit" },
+        pnpm_tauri_build: { maxAttempts: 1, retryOn: "nonzero_exit" }
+      },
+      prechecks: [{ kind: "skip_if_exists", path: "node_modules", command_id: "pnpm_install" }]
+    }
   }
 ];
 
@@ -84,4 +105,3 @@ export const getAcceptancePipeline = (id: string): AcceptancePipeline | undefine
 export const listAcceptanceCommands = (): AcceptanceCommand[] => [...acceptanceCommands];
 
 export const listAcceptancePipelines = (): AcceptancePipeline[] => [...acceptancePipelines];
-

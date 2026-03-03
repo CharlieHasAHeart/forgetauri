@@ -4,7 +4,14 @@ import { z } from "zod";
 import type { CmdResult } from "../../runner/runCmd.js";
 import { assertCommandAllowed, assertCwdInside } from "../../runtime/policy.js";
 import type { AgentCmdRunner, ErrorKind, VerifyProjectResult, VerifyStepResult } from "../types.js";
-import { DEFAULT_ACCEPTANCE_PIPELINE_ID, getAcceptanceCommand, getAcceptancePipeline } from "../core/acceptance_catalog.js";
+import {
+  DEFAULT_ACCEPTANCE_PIPELINE_ID,
+  getAcceptanceCommand,
+  getAcceptancePipeline,
+  type AcceptanceCommand
+} from "../core/acceptance_catalog.js";
+import type { RuntimePaths } from "../core/runtime_paths.js";
+import { resolveCwdFromPolicy } from "../core/cwd_policy.js";
 
 export const verifyProjectInputSchema = z.object({
   projectRoot: z.string().min(1)
@@ -60,21 +67,56 @@ const remainingSteps = (done: VerifyStepResult["name"][]): VerifyStepResult[] =>
   return ordered.filter((step) => !done.includes(step)).map((step) => toStep(step, okSkipped(), true));
 };
 
+const stepNamesForCommand = (commandId: string, attempt: number): VerifyStepResult["name"] => {
+  if (commandId === "pnpm_install") return attempt > 1 ? "install_retry" : "install";
+  if (commandId === "pnpm_build") return attempt > 1 ? "build_retry" : "build";
+  if (commandId === "cargo_check") return "cargo_check";
+  if (commandId === "pnpm_tauri_help") return "tauri_check";
+  if (commandId === "pnpm_tauri_build") return "tauri_build";
+  throw new Error(`unsupported pipeline command_id '${commandId}'`);
+};
+
+const shouldRetry = (retryOn: "nonzero_exit" | "deps_signal" | "always" | undefined, stderr: string): boolean => {
+  if (retryOn === "always") return true;
+  if (retryOn === "deps_signal") return isDepsBuildFailure(stderr);
+  return true;
+};
+
 export const runVerifyProject = async (args: {
   projectRoot: string;
   runCmdImpl: AgentCmdRunner;
+  runtimePaths?: RuntimePaths;
+  onCommandRun?: (event: {
+    commandId: string;
+    cmd: string;
+    args: string[];
+    cwd: string;
+    ok: boolean;
+    code: number;
+    stdout: string;
+    stderr: string;
+  }) => void;
 }): Promise<VerifyProjectResult> => {
   // Standard desktop acceptance pipeline source of truth: desktop_tauri_default.
   const pipeline = getAcceptancePipeline(DEFAULT_ACCEPTANCE_PIPELINE_ID);
-  const commandInstall = getAcceptanceCommand("pnpm_install");
-  const commandBuild = getAcceptanceCommand("pnpm_build");
-  const commandCargoCheck = getAcceptanceCommand("cargo_check");
-  const commandTauriHelp = getAcceptanceCommand("pnpm_tauri_help");
-  const commandTauriBuild = getAcceptanceCommand("pnpm_tauri_build");
-
-  if (!pipeline || !commandInstall || !commandBuild || !commandCargoCheck || !commandTauriHelp || !commandTauriBuild) {
-    throw new Error("acceptance catalog is missing required desktop_tauri_default commands");
+  if (!pipeline) {
+    throw new Error("acceptance catalog is missing required desktop_tauri_default pipeline");
   }
+
+  const commandMap = new Map<string, AcceptanceCommand>();
+  for (const step of pipeline.steps) {
+    const command = getAcceptanceCommand(step.command_id);
+    if (!command) {
+      throw new Error(`acceptance catalog is missing required command '${step.command_id}'`);
+    }
+    commandMap.set(step.command_id, command);
+  }
+
+  const runtimePaths: RuntimePaths = args.runtimePaths ?? {
+    repoRoot: args.projectRoot,
+    appDir: args.projectRoot,
+    tauriDir: join(args.projectRoot, "src-tauri").replace(/\\/g, "/")
+  };
 
   const safeRun = async (cmd: string, argv: string[], cwd: string): Promise<CmdResult> => {
     assertCommandAllowed(cmd);
@@ -103,62 +145,74 @@ export const runVerifyProject = async (args: {
     };
   };
 
-  const nodeModulesPath = join(args.projectRoot, "node_modules");
+  const prechecks = pipeline.execution?.prechecks ?? [];
+  const retryRules = pipeline.execution?.retries ?? {};
 
-  if (!existsSync(nodeModulesPath)) {
-    const installResult = await safeRun(commandInstall.cmd, commandInstall.args, args.projectRoot);
-    const installStep = toStep("install", installResult);
-    push(installStep);
-    if (!installStep.ok) return fail("install", installStep.stderr, "verify failed at install");
-  } else {
-    push(toStep("install", okSkipped(), true));
-  }
+  for (const step of pipeline.steps) {
+    const command = commandMap.get(step.command_id)!;
+    const retryRule = retryRules[step.command_id];
+    const maxAttempts = Math.max(1, retryRule?.maxAttempts ?? 1);
+    const cwd = resolveCwdFromPolicy(command.cwd_policy, runtimePaths);
 
-  push(toStep("install_retry", okSkipped(), true));
-
-  const buildResult = await safeRun(commandBuild.cmd, commandBuild.args, args.projectRoot);
-  const buildStep = toStep("build", buildResult);
-  push(buildStep);
-
-  if (!buildStep.ok && isDepsBuildFailure(buildStep.stderr)) {
-    const installRetry = await safeRun(commandInstall.cmd, commandInstall.args, args.projectRoot);
-    steps[done.indexOf("install_retry")] = toStep("install_retry", installRetry);
-
-    if (!installRetry.ok) {
-      return fail("install_retry", installRetry.stderr, "verify failed at install retry");
+    let skipped = false;
+    for (const precheck of prechecks) {
+      if (precheck.command_id !== step.command_id) continue;
+      if (precheck.kind === "skip_if_exists") {
+        const precheckPath = precheck.path.startsWith("/") ? precheck.path : join(runtimePaths.appDir, precheck.path);
+        if (existsSync(precheckPath)) {
+          skipped = true;
+        }
+      }
     }
 
-    const buildRetry = await safeRun(commandBuild.cmd, commandBuild.args, args.projectRoot);
-    const buildRetryStep = toStep("build_retry", buildRetry);
-    push(buildRetryStep);
-    if (!buildRetryStep.ok) {
-      return fail("build_retry", buildRetryStep.stderr, "verify failed at build retry");
+    if (skipped) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        push(toStep(stepNamesForCommand(step.command_id, attempt), okSkipped(), true));
+      }
+      continue;
     }
-  } else {
-    if (!buildStep.ok) return fail("build", buildStep.stderr, "verify failed at build");
-    push(toStep("build_retry", okSkipped(), true));
-  }
 
-  const tauriRoot = join(args.projectRoot, "src-tauri");
-  if (existsSync(tauriRoot)) {
-    const cargoResult = await safeRun(commandCargoCheck.cmd, commandCargoCheck.args, tauriRoot);
-    const cargoStep = toStep("cargo_check", cargoResult);
-    push(cargoStep);
-    if (!cargoStep.ok) return fail("cargo_check", cargoStep.stderr, "verify failed at cargo_check");
+    let success = false;
+    let lastFailedStep: VerifyStepResult | undefined;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const run = await safeRun(command.cmd, command.args, cwd);
+      args.onCommandRun?.({
+        commandId: step.command_id,
+        cmd: command.cmd,
+        args: command.args,
+        cwd,
+        ok: run.ok,
+        code: run.code,
+        stdout: run.stdout,
+        stderr: run.stderr
+      });
 
-    const tauriCheck = await safeRun(commandTauriHelp.cmd, commandTauriHelp.args, args.projectRoot);
-    const tauriCheckStep = toStep("tauri_check", tauriCheck);
-    push(tauriCheckStep);
-    if (!tauriCheckStep.ok) return fail("tauri_check", tauriCheckStep.stderr, "verify failed at tauri_check");
+      const verifyStep = toStep(stepNamesForCommand(step.command_id, attempt), run);
+      push(verifyStep);
 
-    const tauriBuild = await safeRun(commandTauriBuild.cmd, commandTauriBuild.args, args.projectRoot);
-    const tauriBuildStep = toStep("tauri_build", tauriBuild);
-    push(tauriBuildStep);
-    if (!tauriBuildStep.ok) return fail("tauri_build", tauriBuildStep.stderr, "verify failed at tauri_build");
-  } else {
-    push(toStep("cargo_check", okSkipped(), true));
-    push(toStep("tauri_check", okSkipped(), true));
-    push(toStep("tauri_build", okSkipped(), true));
+      if (run.ok) {
+        success = true;
+        for (let pad = attempt + 1; pad <= maxAttempts; pad += 1) {
+          push(toStep(stepNamesForCommand(step.command_id, pad), okSkipped(), true));
+        }
+        break;
+      }
+
+      lastFailedStep = verifyStep;
+      if (attempt < maxAttempts && shouldRetry(retryRule?.retryOn, run.stderr)) {
+        continue;
+      }
+      break;
+    }
+
+    if (!success) {
+      if (step.optional) {
+        continue;
+      }
+      const failedStepName = lastFailedStep?.name ?? stepNamesForCommand(step.command_id, 1);
+      const failedStderr = lastFailedStep?.stderr ?? "verify failed";
+      return fail(failedStepName, failedStderr, `verify failed at ${failedStepName}`);
+    }
   }
 
   const filled = [...steps, ...remainingSteps(done)];

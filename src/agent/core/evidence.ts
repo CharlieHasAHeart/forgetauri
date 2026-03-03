@@ -30,6 +30,7 @@ export type CommandRanEvent = {
   turn: number;
   task_id: string;
   call_id: string;
+  command_id?: string;
   cmd: string;
   args: string[];
   cwd: string;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { runVerifyProject, verifyProjectInputSchema } from "../../verifyProject.js";
 import type { ToolPackage } from "../../types.js";
+import { randomUUID } from "node:crypto";
 
 const verifyStepSchema = z.object({
   name: z.enum(["install", "install_retry", "build", "build_retry", "cargo_check", "tauri_check", "tauri_build"]),
@@ -37,10 +38,40 @@ export const toolPackage: ToolPackage<z.infer<typeof verifyProjectInputSchema>, 
   runtime: {
     run: async (input, ctx) => {
       try {
+        const runtimePaths = ctx.memory.runtimePaths ?? {
+          repoRoot: ctx.memory.repoRoot ?? process.cwd(),
+          appDir: input.projectRoot,
+          tauriDir: `${input.projectRoot.replace(/\\/g, "/")}/src-tauri`
+        };
         const result = await runVerifyProject({
           projectRoot: input.projectRoot,
-          runCmdImpl: ctx.runCmdImpl
+          runCmdImpl: ctx.runCmdImpl,
+          runtimePaths,
+          onCommandRun: (event) => {
+            const logger = ctx.memory.evidenceLogger;
+            const runId = ctx.memory.evidenceRunId;
+            const turn = ctx.memory.evidenceTurn;
+            const taskId = ctx.memory.evidenceTaskId;
+            if (!logger || !runId || turn === undefined || !taskId) return;
+            logger.append({
+              event_type: "command_ran",
+              run_id: runId,
+              turn,
+              task_id: taskId,
+              call_id: randomUUID(),
+              command_id: event.commandId,
+              cmd: event.cmd,
+              args: event.args,
+              cwd: event.cwd,
+              ok: event.ok,
+              exit_code: event.code,
+              stdout_tail: event.stdout.length > 4000 ? event.stdout.slice(event.stdout.length - 4000) : event.stdout,
+              stderr_tail: event.stderr.length > 4000 ? event.stderr.slice(event.stderr.length - 4000) : event.stderr,
+              at: new Date().toISOString()
+            });
+          }
         });
+        ctx.memory.runtimePaths = runtimePaths;
         ctx.memory.verifyResult = {
           ok: result.ok,
           code: result.ok ? 0 : 1,

@@ -42,6 +42,7 @@ const isCommandRan = (value: unknown): value is CommandRanEvent =>
   typeof value.cwd === "string" &&
   typeof value.ok === "boolean" &&
   typeof value.exit_code === "number" &&
+  (value.command_id === undefined || typeof value.command_id === "string") &&
   typeof value.at === "string";
 
 export const readEvidenceJsonlWithDiagnostics = async (filePath: string): Promise<EvidenceReadResult> => {
