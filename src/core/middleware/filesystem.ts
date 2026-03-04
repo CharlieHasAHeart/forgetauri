@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { LlmMessage, LlmPort } from "../contracts/llm.js";
 import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
 import type { KernelMiddleware } from "./types.js";
@@ -176,8 +176,9 @@ const parseIntPositive = (value: unknown, fallback: number): number => {
 
 const filesystemSystemPromptBody = (maxChars: number): string =>
   [
-    "You can use filesystem tools: ls, read_file, write_file, edit_file, glob, grep.",
+    "You can use filesystem tools: ls, read_file, write_file, edit_file, glob, grep, read_blob.",
     "Use read_file/grep before assumptions; never invent file contents.",
+    "When a tool returns a ref, use read_blob to fetch full content.",
     "All paths are confined to middleware baseDir. Never attempt path traversal.",
     `Keep outputs concise. Large outputs may be truncated with ref handles (maxChars=${maxChars}).`
   ].join(" ");
@@ -279,7 +280,7 @@ export const createFilesystemMiddleware = (opts?: FilesystemMiddlewareOptions): 
         }
         const baseDir = getBaseDir(ctx, opts);
         const absolute = safeResolve(baseDir, relPath);
-        await mkdir(resolve(absolute, ".."), { recursive: true });
+        await mkdir(dirname(absolute), { recursive: true });
         await writeFile(absolute, data.content, "utf8");
         const fileStat = await stat(absolute);
         const relativePath = safeRelative(baseDir, absolute);
@@ -331,6 +332,24 @@ export const createFilesystemMiddleware = (opts?: FilesystemMiddlewareOptions): 
           const lines = original.split(/\r?\n/);
           const start = Math.max(1, Math.floor(data.startLine));
           const end = Math.max(start, Math.floor(data.endLine));
+          if (start < 1 || start > lines.length) {
+            return {
+              ok: false,
+              error: {
+                code: "FS_EDIT_RANGE",
+                message: `Invalid startLine ${start}. Valid range is 1..${lines.length}`
+              }
+            };
+          }
+          if (end < start || end > lines.length) {
+            return {
+              ok: false,
+              error: {
+                code: "FS_EDIT_RANGE",
+                message: `Invalid endLine ${end}. Valid range is ${start}..${lines.length}`
+              }
+            };
+          }
           const replLines = data.replacement.split(/\r?\n/);
           lines.splice(start - 1, end - start + 1, ...replLines);
           updated = lines.join("\n");
@@ -445,6 +464,36 @@ export const createFilesystemMiddleware = (opts?: FilesystemMiddlewareOptions): 
     }
   };
 
+  const toolReadBlob: ToolSpec = {
+    name: "read_blob",
+    description: "Read blob content by ref (from ctx.memory.blobs/filesFull).",
+    run: async (input, ctx) => {
+      try {
+        const data = parseObject(input ?? {});
+        const ref = parsePath(data.ref, "ref");
+        const max = parseIntPositive(data.maxChars, maxChars);
+        const mem = memoryView(ctx);
+        const fullStore = mem.filesFull ?? {};
+        const blobStore = mem.blobs ?? {};
+        const content = fullStore[ref] ?? blobStore[ref];
+        if (typeof content !== "string") {
+          return { ok: false, error: { code: "FS_BLOB_NOT_FOUND", message: "blob ref not found" } };
+        }
+        const preview = truncateWithMarker(content, max);
+        return {
+          ok: true,
+          data: {
+            text: preview.text,
+            truncated: preview.truncated,
+            ref
+          }
+        };
+      } catch (error) {
+        return { ok: false, error: { code: "FS_BLOB_READ_FAILED", message: error instanceof Error ? error.message : String(error) } };
+      }
+    }
+  };
+
   const wrapProvider = (provider: LlmPort): LlmPort => {
     const prependSystem = (messages: LlmMessage[]): LlmMessage[] => [
       { role: "system", content: filesystemSystemPromptBody(maxChars) },
@@ -480,7 +529,8 @@ export const createFilesystemMiddleware = (opts?: FilesystemMiddlewareOptions): 
       write_file: toolWriteFile,
       edit_file: toolEditFile,
       glob: toolGlob,
-      grep: toolGrep
+      grep: toolGrep,
+      read_blob: toolReadBlob
     }),
     wrapProvider,
     hooks: {
