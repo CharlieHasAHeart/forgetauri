@@ -28,5 +28,5 @@ export type PlanChangeReviewFn = (context: PlanChangeReviewContext) => Promise<s
 export type HumanReviewPort = {
   humanReview?: HumanReviewFn;
   requestPlanChangeReview?: PlanChangeReviewFn;
-  onEvent?: (event: import("./events.js").AgentEvent) => void;
+  onEvent?: (event: import("./telemetry/events.js").AgentEvent) => void;
 };
