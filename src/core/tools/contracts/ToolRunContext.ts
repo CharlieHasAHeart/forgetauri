@@ -1,1 +1,1 @@
-export type { ToolRunContext } from "../../../agent/tools/types.js";
+export type { ToolRunContext } from "../../contracts/tools.js";

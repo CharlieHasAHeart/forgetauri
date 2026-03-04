@@ -1,4 +1,3 @@
-// Centralized audit event record helpers for plan/task/replan events.
 import type { AgentTurnAuditCollector } from "./audit.js";
 
 export const recordPlanProposed = (args: {
@@ -17,7 +16,7 @@ export const recordPlanProposed = (args: {
     llmUsage: args.usage,
     toolCalls: [],
     toolResults: [],
-    note: `initial plan generated: ${args.taskCount} tasks`
+    note: `plan_proposed tasks=${args.taskCount}`
   });
 };
 
@@ -38,9 +37,9 @@ export const recordTaskActionPlan = (args: {
     llmPreviousResponseId: args.previousResponseIdSent,
     llmResponseId: args.responseId,
     llmUsage: args.usage,
-    note: `task_tool_calls for ${args.taskId}`,
     toolCalls: args.toolCalls,
-    toolResults: args.toolResults
+    toolResults: args.toolResults,
+    note: `task=${args.taskId}`
   });
 };
 
@@ -51,7 +50,7 @@ export const recordPlanChange = (args: {
   previousResponseIdSent?: string;
   responseId?: string;
   usage?: unknown;
-  gateResult: { status: string; reason: string };
+  gateResult: { status: "needs_user_review" | "denied"; reason: string };
 }): void => {
   args.audit.recordTurn({
     turn: args.turn,
@@ -59,8 +58,8 @@ export const recordPlanChange = (args: {
     llmPreviousResponseId: args.previousResponseIdSent,
     llmResponseId: args.responseId,
     llmUsage: args.usage,
-    note: `plan-change gate ${args.gateResult.status}: ${args.gateResult.reason}`,
     toolCalls: [],
-    toolResults: []
+    toolResults: [],
+    note: `replan_gate=${args.gateResult.status}:${args.gateResult.reason}`
   });
 };

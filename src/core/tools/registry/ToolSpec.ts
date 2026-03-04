@@ -1,1 +1,1 @@
-export type { ToolDocPack, ToolSpec } from "../../../agent/tools/types.js";
+export type { ToolDocPack, ToolSpec } from "../../contracts/tools.js";

@@ -1,10 +1,9 @@
-// Orchestrates the plan-first loop: Plan -> Execute -> Review -> Replan.
-import { proposePlan } from "../../agent/planning/planner.js";
-import { PLAN_INSTRUCTIONS } from "../../agent/planning/prompts.js";
-import type { AgentPolicy } from "./policy/policy.js";
-import type { AgentState } from "../../agent/types.js";
-import type { LlmProvider } from "../../llm/provider.js";
-import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
+import type { AgentPolicy } from "../contracts/policy.js";
+import type { AgentState } from "../contracts/state.js";
+import type { LlmPort } from "../contracts/llm.js";
+import type { Planner } from "../contracts/planning.js";
+import type { RuntimePathsResolver } from "../contracts/runtime.js";
+import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
 import { recordPlanProposed } from "./recorder.js";
 import { summarizeState } from "./state_summary.js";
@@ -12,29 +11,33 @@ import type { HumanReviewFn, PlanChangeReviewFn } from "./contracts.js";
 import type { AgentEvent } from "./events.js";
 import { runTurn } from "./turn.js";
 import { preflightRuntime } from "./preflight.js";
+import { PLAN_INSTRUCTIONS } from "../contracts/planning.js";
 
 export const runPlanFirstAgent = async (args: {
   state: AgentState;
-  provider: LlmProvider;
+  provider: LlmPort;
+  planner: Planner;
   registry: Record<string, ToolSpec<any>>;
   ctx: ToolRunContext;
   maxTurns: number;
   maxToolCallsPerTurn: number;
   audit: AgentTurnAuditCollector;
   policy: AgentPolicy;
+  runtimePathsResolver: RuntimePathsResolver;
   humanReview?: HumanReviewFn;
   requestPlanChangeReview?: PlanChangeReviewFn;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<void> => {
-  const { state, provider, registry, ctx, maxTurns, maxToolCallsPerTurn, audit, policy } = args;
+  const { state, provider, planner, registry, ctx, maxTurns, maxToolCallsPerTurn, audit, policy } = args;
   const isTerminal = (): boolean => state.status === "failed" || state.status === "done";
   const requestPlanChangeReview: PlanChangeReviewFn =
     args.requestPlanChangeReview ??
     (async () =>
       "I do not approve this plan change. Please propose a plan change that fixes the failure without relaxing acceptance or changing tech stack.");
+
   state.status = "planning";
 
-  const planProposal = await proposePlan({
+  const planProposal = await planner.proposePlan({
     goal: state.goal,
     provider,
     registry,
@@ -66,6 +69,15 @@ export const runPlanFirstAgent = async (args: {
     taskCount: planProposal.plan.tasks.length
   });
   args.onEvent?.({ type: "plan_proposed", taskCount: planProposal.plan.tasks.length });
+
+  const runtimePaths = args.runtimePathsResolver(ctx, state);
+  ctx.memory.runtimePaths = runtimePaths;
+  ctx.memory.repoRoot = runtimePaths.repoRoot;
+  ctx.memory.appDir = runtimePaths.appDir;
+  ctx.memory.tauriDir = runtimePaths.tauriDir;
+  state.runtimePaths = runtimePaths;
+  state.appDir = runtimePaths.appDir;
+
   preflightRuntime({ state, ctx });
 
   const completed = new Set<string>();
@@ -77,12 +89,14 @@ export const runPlanFirstAgent = async (args: {
       turn,
       state,
       provider,
+      planner,
       registry,
       ctx,
       maxTurns,
       maxToolCallsPerTurn,
       audit,
       policy,
+      runtimePathsResolver: args.runtimePathsResolver,
       completed,
       taskFailures,
       replans,

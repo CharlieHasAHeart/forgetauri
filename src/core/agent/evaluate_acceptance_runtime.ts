@@ -1,25 +1,34 @@
-import { evaluateAcceptance, type EvaluationResult } from "../../agent/core/acceptance/engine.js";
-import type { EvidenceEvent } from "../../agent/core/evidence/types.js";
-import type { Intent } from "../../agent/core/acceptance/intent.js";
-import type { WorkspaceSnapshot } from "../../agent/core/workspace/snapshot.js";
-import type { ToolRunContext } from "../../agent/tools/types.js";
-import type { AgentState } from "../../agent/types.js";
-import { getRuntimePaths } from "../../core/runtime_paths/getRuntimePaths.js";
+import type { ToolRunContext } from "../contracts/tools.js";
+import type { AgentState } from "../contracts/state.js";
+import type { RuntimePaths } from "../contracts/runtime.js";
+
+export type EvaluationResult = {
+  status: "pending" | "satisfied" | "failed";
+  requirements: Array<Record<string, unknown>>;
+  satisfied_requirements: Array<Record<string, unknown>>;
+  diagnostics: string[];
+  runtime: RuntimePaths;
+};
 
 export const evaluateAcceptanceRuntime = (args: {
   goal: string;
-  intent: Intent;
+  intent: unknown;
   ctx: ToolRunContext;
   state: AgentState;
-  evidence: EvidenceEvent[];
-  snapshot: WorkspaceSnapshot;
+  evidence: unknown[];
+  snapshot: unknown;
 }): EvaluationResult => {
-  const runtime = getRuntimePaths(args.ctx, args.state);
-  return evaluateAcceptance({
-    goal: args.goal,
-    intent: args.intent,
-    evidence: args.evidence,
-    snapshot: args.snapshot,
+  const runtime = args.state.runtimePaths ?? args.ctx.memory.runtimePaths ?? {
+    repoRoot: args.ctx.memory.repoRoot ?? process.cwd(),
+    appDir: args.ctx.memory.appDir ?? args.state.appDir ?? args.state.outDir,
+    tauriDir: args.ctx.memory.tauriDir ?? `${args.ctx.memory.appDir ?? args.state.appDir ?? args.state.outDir}/src-tauri`
+  };
+
+  return {
+    status: "pending",
+    requirements: [],
+    satisfied_requirements: [],
+    diagnostics: ["acceptance runtime evaluator is not wired in core-only mode"],
     runtime
-  });
+  };
 };

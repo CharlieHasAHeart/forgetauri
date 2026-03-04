@@ -1,35 +1,15 @@
-import type { AgentState } from "../../agent/types.js";
-import { summarizePlan } from "../../agent/plan/selectors.js";
+import type { AgentState } from "../contracts/state.js";
 
-export const summarizeState = (state: AgentState): unknown => ({
+export const summarizeState = (state: AgentState): Record<string, unknown> => ({
   status: state.status,
   goal: state.goal,
-  projectRoot: state.projectRoot,
+  outDir: state.outDir,
   appDir: state.appDir,
-  contractPath: state.contractPath,
-  uxPath: state.uxPath,
-  implPath: state.implPath,
-  deliveryPath: state.deliveryPath,
-  lastResponseId: state.lastResponseId,
-  designValidation: state.designValidation,
-  lastDeterministicFixes: state.lastDeterministicFixes,
-  repairKnownChecked: state.repairKnownChecked,
-  codegenSummary: state.codegenSummary,
   planVersion: state.planVersion,
-  currentTaskId: state.currentTaskId,
-  completedTasks: state.completedTasks,
-  planSummary: state.planData ? summarizePlan(state.planData) : undefined,
-  counts: {
-    contractCommands: state.contract?.commands.length ?? 0,
-    uxScreens: state.ux?.screens.length ?? 0,
-    implServices: state.impl?.rust.services.length ?? 0,
-    deliveryChecks: state.delivery?.preflight.checks.length ?? 0
-  },
-  flags: state.flags,
-  budgets: state.budgets,
-  verifyHistory: state.verifyHistory.map((item) => ({ ok: item.ok, step: item.step, summary: item.summary })),
-  lastError: state.lastError,
-  patchPaths: state.patchPaths,
-  humanReviews: state.humanReviews,
-  touchedFiles: state.touchedFiles.slice(-30)
+  completedTasks: state.completedTasks ?? [],
+  touchedFilesCount: state.touchedFiles.length,
+  patchCount: state.patchPaths.length,
+  usedTurns: state.budgets.usedTurns,
+  usedPatches: state.budgets.usedPatches,
+  lastError: state.lastError?.message
 });

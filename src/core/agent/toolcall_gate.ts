@@ -1,5 +1,4 @@
-import type { FailureSignal } from "./failures.js";
-import { fingerprintFailure } from "./failures.js";
+import { fingerprintFailure, type FailureSignal } from "./failures.js";
 
 export type ToolCall = { name: string; input: unknown };
 
@@ -9,8 +8,11 @@ export type ToolCallGateResult =
 
 export const gateToolCalls = (args: {
   toolCalls: ToolCall[];
+  maxToolCallsPerTurn?: number;
+  policyMaxActionsPerTask?: number;
 }): ToolCallGateResult => {
-  const sliced = args.toolCalls ?? [];
+  const limit = Math.min(args.maxToolCallsPerTurn ?? Number.MAX_SAFE_INTEGER, args.policyMaxActionsPerTask ?? Number.MAX_SAFE_INTEGER);
+  const sliced = (args.toolCalls ?? []).slice(0, limit);
 
   for (let i = 0; i < sliced.length; i += 1) {
     const call = sliced[i] as any;
@@ -19,12 +21,7 @@ export const gateToolCalls = (args: {
       return {
         ok: false,
         details,
-        signal: {
-          class: "system",
-          kind: "PlannerOutputInvalid",
-          message: details,
-          fingerprint: fingerprintFailure("PlannerOutputInvalid", details)
-        }
+        signal: { class: "system", kind: "PlannerOutputInvalid", message: details, fingerprint: fingerprintFailure("PlannerOutputInvalid", details) }
       };
     }
     if (typeof call.name !== "string" || call.name.trim().length === 0) {
@@ -32,12 +29,7 @@ export const gateToolCalls = (args: {
       return {
         ok: false,
         details,
-        signal: {
-          class: "system",
-          kind: "PlannerOutputInvalid",
-          message: details,
-          fingerprint: fingerprintFailure("PlannerOutputInvalid", details)
-        }
+        signal: { class: "system", kind: "PlannerOutputInvalid", message: details, fingerprint: fingerprintFailure("PlannerOutputInvalid", details) }
       };
     }
     if (call.input === undefined) {
@@ -45,12 +37,7 @@ export const gateToolCalls = (args: {
       return {
         ok: false,
         details,
-        signal: {
-          class: "system",
-          kind: "PlannerOutputInvalid",
-          message: details,
-          fingerprint: fingerprintFailure("PlannerOutputInvalid", details)
-        }
+        signal: { class: "system", kind: "PlannerOutputInvalid", message: details, fingerprint: fingerprintFailure("PlannerOutputInvalid", details) }
       };
     }
   }

@@ -1,16 +1,9 @@
-// Executes task action plans via composed tool middlewares and runs criteria checks.
-import { composeMiddlewares } from "../../agent/middleware/compose.js";
-import { acceptanceGateMiddleware } from "../../agent/middleware/tool/acceptance_gate_middleware.js";
-import { evidenceMiddleware } from "../../agent/middleware/tool/evidence_middleware.js";
-import { policyMiddleware } from "../../agent/middleware/tool/policy_middleware.js";
-import { runtimePathsMiddleware } from "../../agent/middleware/tool/runtime_paths_middleware.js";
-import { schemaMiddleware } from "../../agent/middleware/tool/schema_middleware.js";
-import type { ToolCallContext, ToolCallResult } from "../../agent/middleware/tool/types.js";
-import type { AgentPolicy } from "./policy/policy.js";
-import type { PlanTask } from "../../agent/plan/schema.js";
-import type { AgentState } from "../../agent/types.js";
-import { evaluateSuccessCriteriaWithTools } from "../../agent/evaluation/reviewer.js";
-import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { AgentPolicy } from "../contracts/policy.js";
+import type { PlanTask, SuccessCriterion, ToolCall } from "../contracts/planning.js";
+import type { AgentState } from "../contracts/state.js";
+import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
 import { setStateError, truncate } from "./errors.js";
 import type { AgentEvent } from "./events.js";
 import type { HumanReviewFn } from "./contracts.js";
@@ -31,40 +24,122 @@ const normalizeToolResults = (toolName: string, ok: boolean, note?: string): { n
   note
 });
 
-const executeToolCore = async (context: ToolCallContext): Promise<ToolCallResult> => {
-  const { call, state, humanReview } = context;
-  const tool = context.tool;
+const evaluateCriterion = async (args: {
+  criterion: SuccessCriterion;
+  toolResults: Array<{ name: string; ok: boolean }>;
+  ctx: ToolRunContext;
+  state: AgentState;
+}): Promise<{ ok: boolean; failure?: string; toolAudit?: { name: string; ok: boolean; error?: string } }> => {
+  const c = args.criterion;
+
+  if (c.type === "tool_result") {
+    const matched = args.toolResults.filter((result) => result.name === c.tool_name);
+    if (matched.length === 0) {
+      return { ok: false, failure: `criteria check failed: ${c.tool_name}` };
+    }
+    const expected = c.expected_ok ?? true;
+    const ok = matched.some((item) => item.ok === expected);
+    return ok ? { ok: true } : { ok: false, failure: `criteria check failed: ${c.tool_name}` };
+  }
+
+  if (c.type === "file_exists") {
+    const base = args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
+    const target = join(base, c.path);
+    try {
+      await readFile(target);
+      return { ok: true };
+    } catch {
+      return { ok: false, failure: "criteria check failed: tool_check_file_exists" };
+    }
+  }
+
+  if (c.type === "file_contains") {
+    const base = args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
+    const target = join(base, c.path);
+    try {
+      const content = await readFile(target, "utf8");
+      if (content.includes(c.contains)) return { ok: true };
+      return { ok: false, failure: "criteria check failed: tool_check_file_contains" };
+    } catch {
+      return { ok: false, failure: "criteria check failed: tool_check_file_contains" };
+    }
+  }
+
+  if (c.type === "command") {
+    const cwd = c.cwd ?? args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
+    const result = await args.ctx.runCmdImpl(c.cmd, c.args ?? [], cwd);
+    const expected = c.expect_exit_code ?? 0;
+    if (result.code === expected && result.ok) return { ok: true };
+    return {
+      ok: false,
+      failure: `criteria check failed: command ${c.cmd}`,
+      toolAudit: { name: `${c.cmd} ${String(c.args ?? []).trim()}`, ok: false, error: result.stderr || result.stdout }
+    };
+  }
+
+  return { ok: false, failure: "criteria check failed: unknown criterion" };
+};
+
+export const executeToolCall = async (args: {
+  call: ToolCall;
+  registry: Record<string, ToolSpec<any>>;
+  ctx: ToolRunContext;
+  state: AgentState;
+  policy: AgentPolicy;
+  humanReview?: HumanReviewFn;
+  onEvent?: (event: AgentEvent) => void;
+}): Promise<ExecutedToolCall> => {
+  const { call, state, humanReview } = args;
+
+  if (!args.policy.safety.allowed_tools.includes(call.name)) {
+    const note = `tool ${call.name} blocked by policy`;
+    setStateError(state, "Config", note);
+    return { ok: false, note, touchedPaths: [], toolName: call.name };
+  }
+
+  const tool = args.registry[call.name];
   if (!tool) {
-    const note = `tool missing in execution context: ${call.name}`;
+    const note = `unknown tool ${call.name}`;
     setStateError(state, "Unknown", note);
     return { ok: false, note, touchedPaths: [], toolName: call.name };
   }
 
+  let parsedInput: unknown = call.input;
+  if (tool.inputSchema) {
+    try {
+      parsedInput = tool.inputSchema.parse(call.input);
+    } catch (error) {
+      const note = `tool ${call.name} input invalid: ${error instanceof Error ? truncate(error.message, 240) : "invalid input"}`;
+      setStateError(state, "Config", note);
+      return { ok: false, note, touchedPaths: [], toolName: call.name };
+    }
+  }
+
   let result: Awaited<ReturnType<typeof tool.run>>;
   try {
-    result = await tool.run(context.parsedInput, context.ctx);
+    result = await tool.run(parsedInput as never, args.ctx);
   } catch (error) {
     const note = `tool ${call.name} threw: ${error instanceof Error ? error.message : String(error)}`;
     setStateError(state, "Unknown", note);
     return { ok: false, note, touchedPaths: [], toolName: call.name };
   }
 
-  context.toolRunResult = result;
   const touched = result.meta?.touchedPaths ?? [];
-
-  const beforePatches = new Set(state.patchPaths);
   state.touchedFiles = Array.from(new Set([...state.touchedFiles, ...touched]));
-  state.patchPaths = Array.from(new Set([...state.patchPaths, ...context.ctx.memory.patchPaths]));
-  const newPatchPaths = state.patchPaths.filter((path) => !beforePatches.has(path));
+  state.patchPaths = Array.from(new Set([...state.patchPaths, ...args.ctx.memory.patchPaths]));
 
-  if (newPatchPaths.length > 0 && humanReview) {
-    context.onEvent?.({ type: "patch_generated", paths: newPatchPaths });
+  if (state.patchPaths.length > state.budgets.maxPatches) {
+    setStateError(state, "Config", `Patch budget exceeded: ${state.patchPaths.length} > ${state.budgets.maxPatches}`);
+    return { ok: false, note: state.lastError?.message, touchedPaths: touched, resultData: result.data, toolName: call.name };
+  }
+
+  if (state.patchPaths.length > 0 && humanReview) {
     const approved = await humanReview({
       reason: "Generated PATCH files require manual merge",
-      patchPaths: newPatchPaths,
+      patchPaths: state.patchPaths,
       phase: state.status
     });
-    state.humanReviews.push({ reason: "Generated PATCH files require manual merge", approved, patchPaths: newPatchPaths });
+    state.humanReviews.push({ reason: "Generated PATCH files require manual merge", approved, patchPaths: state.patchPaths, phase: state.status });
     if (!approved) {
       setStateError(state, "Config", "Human review rejected automatic continuation after PATCH generation");
       return {
@@ -78,29 +153,22 @@ const executeToolCore = async (context: ToolCallContext): Promise<ToolCallResult
   }
 
   if (!result.ok) {
-    if (result.error?.code === "VERIFY_ACCEPTANCE_FAILED") {
-      state.lastError = {
-        kind: "Config",
-        code: "VERIFY_ACCEPTANCE_FAILED",
-        message: `${result.error?.message ?? "tool failed"}${result.error?.detail ? ` (${truncate(result.error.detail)})` : ""}`
-      };
-    } else {
-      setStateError(
-        state,
-        "Unknown",
-        `${result.error?.message ?? "tool failed"}${result.error?.detail ? ` (${truncate(result.error.detail)})` : ""}`
-      );
-    }
+    setStateError(
+      state,
+      "Unknown",
+      `${result.error?.message ?? "tool failed"}${result.error?.detail ? ` (${truncate(result.error.detail)})` : ""}`,
+      result.error?.code
+    );
   } else if (result.data && typeof result.data === "object") {
     const payload = result.data as Record<string, unknown>;
     if (call.name === "tool_design_contract" && payload.contract && typeof payload.contract === "object") {
-      state.contract = payload.contract as typeof state.contract;
+      state.contract = payload.contract;
     } else if (call.name === "tool_design_ux" && payload.ux && typeof payload.ux === "object") {
-      state.ux = payload.ux as typeof state.ux;
+      state.ux = payload.ux;
     } else if (call.name === "tool_design_implementation" && payload.impl && typeof payload.impl === "object") {
-      state.impl = payload.impl as typeof state.impl;
+      state.impl = payload.impl;
     } else if (call.name === "tool_design_delivery" && payload.delivery && typeof payload.delivery === "object") {
-      state.delivery = payload.delivery as typeof state.delivery;
+      state.delivery = payload.delivery;
     }
   }
 
@@ -113,43 +181,8 @@ const executeToolCore = async (context: ToolCallContext): Promise<ToolCallResult
   };
 };
 
-const buildToolCallHandler = () =>
-  composeMiddlewares<ToolCallContext, ToolCallResult>(
-    [runtimePathsMiddleware, evidenceMiddleware, policyMiddleware, schemaMiddleware, acceptanceGateMiddleware],
-    executeToolCore
-  );
-
-export const executeToolCall = async (args: {
-  call: { name: string; input: unknown };
-  registry: Record<string, ToolSpec<any>>;
-  ctx: ToolRunContext;
-  state: AgentState;
-  policy: AgentPolicy;
-  humanReview?: HumanReviewFn;
-  onEvent?: (event: AgentEvent) => void;
-}): Promise<ExecutedToolCall> => {
-  const handler = buildToolCallHandler();
-  const result = await handler({
-    call: args.call,
-    registry: args.registry,
-    ctx: args.ctx,
-    state: args.state,
-    policy: args.policy,
-    humanReview: args.humanReview,
-    onEvent: args.onEvent
-  });
-
-  return {
-    ok: result.ok,
-    note: result.note,
-    touchedPaths: result.touchedPaths,
-    resultData: result.resultData,
-    toolName: result.toolName
-  };
-};
-
 export const executeActionPlan = async (args: {
-  toolCalls: Array<{ name: string; input: unknown }>;
+  toolCalls: ToolCall[];
   actionPlanActions: Array<{ name: string; on_fail?: "stop" | "continue" }>;
   registry: Record<string, ToolSpec<any>>;
   ctx: ToolRunContext;
@@ -196,22 +229,34 @@ export const executeActionPlan = async (args: {
   }
 
   args.state.status = "reviewing";
-  const criteria = await evaluateSuccessCriteriaWithTools({
-    task: args.task,
-    toolResults: simpleToolResults,
-    executeToolCall: (call) =>
-      executeToolCall({
-        call,
-        registry: args.registry,
-        ctx: args.ctx,
-        state: args.state,
-        policy: args.policy,
-        humanReview: args.humanReview,
-        onEvent: args.onEvent
-      })
-  });
 
-  turnAuditResults.push(...criteria.toolAudit.map((item) => ({ name: item.name, ok: item.ok, error: item.error })));
+  const failures: string[] = [];
+  const criteriaToolAudit: Array<{ name: string; ok: boolean; error?: string }> = [];
 
-  return { turnAuditResults, simpleToolResults, criteria };
+  for (const criterion of args.task.success_criteria) {
+    const verdict = await evaluateCriterion({
+      criterion,
+      toolResults: simpleToolResults,
+      ctx: args.ctx,
+      state: args.state
+    });
+    if (!verdict.ok && verdict.failure) {
+      failures.push(verdict.failure);
+    }
+    if (verdict.toolAudit) {
+      criteriaToolAudit.push(verdict.toolAudit);
+    }
+  }
+
+  turnAuditResults.push(...criteriaToolAudit.map((item) => ({ name: item.name, ok: item.ok, error: item.error })));
+
+  return {
+    turnAuditResults,
+    simpleToolResults,
+    criteria: {
+      ok: failures.length === 0,
+      failures,
+      toolAudit: criteriaToolAudit
+    }
+  };
 };

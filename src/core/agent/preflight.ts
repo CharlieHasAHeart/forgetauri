@@ -1,13 +1,13 @@
-import type { AgentState } from "../../agent/types.js";
-import type { ToolRunContext } from "../../agent/tools/types.js";
+import type { AgentState } from "../contracts/state.js";
+import type { ToolRunContext } from "../contracts/tools.js";
 
 export const preflightRuntime = (args: { state: AgentState; ctx: ToolRunContext }): void => {
   const { state, ctx } = args;
-
   if (!ctx.memory.patchPaths) ctx.memory.patchPaths = [];
+  if (!ctx.memory.touchedPaths) ctx.memory.touchedPaths = [];
 
   if (!state.appDir) {
-    if (state.projectRoot) state.appDir = state.projectRoot;
+    if (ctx.memory.appDir) state.appDir = ctx.memory.appDir;
     else if (state.outDir) state.appDir = state.outDir;
   }
 };

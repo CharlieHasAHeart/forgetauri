@@ -1,1 +1,1 @@
-export type { PlanPatchOperation } from "../../agent/plan/schema.js";
+export type { PlanPatchOperation, PlanChangeRequestV2, ToolCall } from "../contracts/planning.js";

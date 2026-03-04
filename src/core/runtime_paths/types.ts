@@ -1,1 +1,5 @@
-export type { RuntimePaths } from "../../agent/core/runtime_paths/types.js";
+export type RuntimePaths = {
+  repoRoot: string;
+  appDir: string;
+  tauriDir: string;
+};

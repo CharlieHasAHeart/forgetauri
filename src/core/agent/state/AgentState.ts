@@ -1,1 +1,1 @@
-export type { AgentState, AgentStatus, VerifyProjectResult, VerifyStepResult, ErrorKind } from "../../../agent/types.js";
+export type { AgentState, AgentStatus, ErrorKind } from "../../contracts/state.js";

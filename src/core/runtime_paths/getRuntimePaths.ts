@@ -1,15 +1,14 @@
 import { isAbsolute, join, resolve } from "node:path";
 import type { RuntimePaths } from "./types.js";
-import { normalizePath } from "../../agent/core/runtime_paths/path_normalizer.js";
-import type { ToolRunContext } from "../../agent/tools/types.js";
-import type { AgentState } from "../../agent/types.js";
+import type { ToolRunContext } from "../contracts/tools.js";
+import type { AgentState } from "../contracts/state.js";
 
-const normalizeSlash = (value: string): string => normalizePath(value.replace(/\\/g, "/")).canonical;
+const normalizeSlash = (value: string): string => value.replace(/\\/g, "/");
 
 const toAbsoluteNormalized = (value: string, base: string): string =>
   normalizeSlash(isAbsolute(value) ? resolve(value) : resolve(base, value));
 
-export const getRuntimePaths = (ctx: ToolRunContext, state: AgentState): RuntimePaths => {
+export const defaultGetRuntimePaths = (ctx: ToolRunContext, state: AgentState): RuntimePaths => {
   const statePaths = state.runtimePaths;
   if (statePaths) {
     return {

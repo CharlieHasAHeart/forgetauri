@@ -1,11 +1,9 @@
-import type { SuccessCriteria } from "../../../agent/plan/schema.js";
-
 export type AgentPolicy = {
   tech_stack: Record<string, unknown>;
   tech_stack_locked: boolean;
   acceptance: {
     locked: boolean;
-    criteria?: SuccessCriteria[];
+    criteria?: Array<Record<string, unknown>>;
   };
   safety: {
     allowed_tools: string[];

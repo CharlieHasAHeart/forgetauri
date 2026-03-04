@@ -1,14 +1,15 @@
 import { AgentTurnAuditCollector } from "./audit.js";
-import { renderToolIndex } from "../../agent/planning/tool_index.js";
 import { runPlanFirstAgent } from "./orchestrator.js";
-import { getRuntimePaths } from "../../core/runtime_paths/getRuntimePaths.js";
+import { defaultGetRuntimePaths } from "../runtime_paths/getRuntimePaths.js";
 import type { AgentEvent } from "./events.js";
-import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
-import type { AgentState } from "../../agent/types.js";
-import type { AgentPolicy } from "./policy/policy.js";
-import type { CommandRunnerPort } from "../../ports/CommandRunnerPort.js";
-import type { HumanReviewPort } from "../../ports/HumanReviewPort.js";
-import type { LlmPort } from "../../ports/LlmPort.js";
+import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
+import type { AgentState } from "../contracts/state.js";
+import type { AgentPolicy } from "../contracts/policy.js";
+import type { CommandRunnerPort, RuntimePathsResolver } from "../contracts/runtime.js";
+import type { HumanReviewPort } from "./contracts.js";
+import type { LlmPort } from "../contracts/llm.js";
+import type { Planner } from "../contracts/planning.js";
+import { noopPlanner } from "../defaults/noopPlanner.js";
 
 export type CoreRunAgentArgs = {
   goal: string;
@@ -26,10 +27,13 @@ export type CoreRunAgentArgs = {
   registry: Record<string, ToolSpec<any>>;
   llm: LlmPort;
   commandRunner: CommandRunnerPort;
+  planner?: Planner;
   audit?: AgentTurnAuditCollector;
   humanReview?: HumanReviewPort;
   modelHint?: string;
   runtimeRepoRoot?: string;
+  runtimePathsResolver?: RuntimePathsResolver;
+  renderToolIndex?: (registry: Record<string, ToolSpec<any>>) => string;
   onEvent?: (event: AgentEvent) => void;
 };
 
@@ -96,11 +100,14 @@ export const runAgent = async (args: CoreRunAgentArgs): Promise<CoreRunAgentResu
       touchedPaths: []
     }
   };
-  const initialRuntimePaths = getRuntimePaths(ctx, state);
+
+  const runtimePathsResolver = args.runtimePathsResolver ?? defaultGetRuntimePaths;
+  const initialRuntimePaths = runtimePathsResolver(ctx, state);
   ctx.memory.runtimePaths = initialRuntimePaths;
   ctx.memory.appDir = initialRuntimePaths.appDir;
   ctx.memory.tauriDir = initialRuntimePaths.tauriDir;
   state.runtimePaths = initialRuntimePaths;
+  state.appDir = initialRuntimePaths.appDir;
 
   const audit = args.audit ?? new AgentTurnAuditCollector(args.goal);
   await audit.start(state.outDir, {
@@ -120,6 +127,7 @@ export const runAgent = async (args: CoreRunAgentArgs): Promise<CoreRunAgentResu
     await runPlanFirstAgent({
       state,
       provider: args.llm,
+      planner: args.planner ?? noopPlanner,
       registry: args.registry,
       ctx,
       maxTurns,
@@ -128,7 +136,8 @@ export const runAgent = async (args: CoreRunAgentArgs): Promise<CoreRunAgentResu
       policy: args.policy,
       humanReview: args.humanReview?.humanReview,
       requestPlanChangeReview: args.humanReview?.requestPlanChangeReview,
-      onEvent: args.onEvent ?? args.humanReview?.onEvent
+      onEvent: args.onEvent ?? args.humanReview?.onEvent,
+      runtimePathsResolver
     });
   } catch (error) {
     runError = error;
@@ -149,7 +158,7 @@ export const runAgent = async (args: CoreRunAgentArgs): Promise<CoreRunAgentResu
     lastError: state.lastError,
     status: state.status,
     policy: args.policy,
-    toolIndex: renderToolIndex(args.registry)
+    toolIndex: args.renderToolIndex ? args.renderToolIndex(args.registry) : ""
   });
 
   if (runError) {

@@ -1,14 +1,14 @@
-import type { LlmProvider } from "../../llm/provider.js";
-import type { PlanTask } from "../../agent/plan/schema.js";
-import type { AgentPolicy } from "./policy/policy.js";
-import type { AgentState } from "../../agent/types.js";
-import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
+import type { LlmPort } from "../contracts/llm.js";
+import type { PlanTask, Planner } from "../contracts/planning.js";
+import type { AgentPolicy } from "../contracts/policy.js";
+import type { RuntimePathsResolver } from "../contracts/runtime.js";
+import type { AgentState } from "../contracts/state.js";
+import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "./contracts.js";
 import type { AgentEvent } from "./events.js";
 import { handleReplan } from "./replanner.js";
 import { runTaskAttempt } from "./task_attempt.js";
-import { requiredInput } from "./util.js";
 import { classifyFailure } from "./failures.js";
 import { setStateError } from "./errors.js";
 
@@ -16,12 +16,14 @@ export const runTaskWithRetries = async (args: {
   turn: number;
   task: PlanTask;
   state: AgentState;
-  provider: LlmProvider;
+  provider: LlmPort;
+  planner: Planner;
   registry: Record<string, ToolSpec<any>>;
   ctx: ToolRunContext;
   maxToolCallsPerTurn: number;
   audit: AgentTurnAuditCollector;
   policy: AgentPolicy;
+  runtimePathsResolver: RuntimePathsResolver;
   completed: Set<string>;
   taskFailures: Map<string, string[]>;
   replans: number;
@@ -38,7 +40,6 @@ export const runTaskWithRetries = async (args: {
   let attempts = 0;
   let taskDone = false;
   let replans = args.replans;
-  const currentPlan = requiredInput(args.state.planData, "plan missing in plan mode");
   const systemFailureSeen = new Map<string, Set<string>>();
 
   while (!taskDone && attempts < args.policy.budgets.max_retries_per_task) {
@@ -48,15 +49,17 @@ export const runTaskWithRetries = async (args: {
       turn: args.turn,
       goal: args.state.goal,
       provider: args.provider,
+      planner: args.planner,
       policy: args.policy,
       task: args.task,
-      currentPlan,
+      currentPlan: args.state.planData!,
       completed: args.completed,
       recentFailures,
       state: args.state,
       registry: args.registry,
       ctx: args.ctx,
       maxToolCallsPerTurn: args.maxToolCallsPerTurn,
+      runtimePathsResolver: args.runtimePathsResolver,
       audit: args.audit,
       humanReview: args.humanReview,
       onEvent: args.onEvent
@@ -100,6 +103,7 @@ export const runTaskWithRetries = async (args: {
     if (attempts >= args.policy.budgets.max_retries_per_task) {
       const replanned = await handleReplan({
         provider: args.provider,
+        planner: args.planner,
         state: args.state,
         policy: args.policy,
         failedTaskId: args.task.id,

@@ -1,7 +1,5 @@
-import type { AgentState } from "../../agent/types.js";
+import type { AgentState } from "../contracts/state.js";
 
 export const setUsedTurn = (state: AgentState, turn: number): void => {
-  state.budgets.usedTurns = turn;
+  state.budgets.usedTurns = Math.max(state.budgets.usedTurns, turn);
 };
-
-export const canRetryTask = (state: AgentState): boolean => state.budgets.usedTurns <= state.budgets.maxTurns;

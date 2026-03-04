@@ -1,13 +1,19 @@
-import type { LlmProvider } from "../../llm/provider.js";
-import {
-  planChangeReviewOutcomeSchema,
-  type GateResult,
-  type PlanChangeRequestV2,
-  type PlanChangeReviewOutcome
-} from "../../agent/plan/schema.js";
+import type { LlmPort } from "../contracts/llm.js";
+import type { PlanChangeRequestV2, PlanPatchOperation } from "../contracts/planning.js";
+
+export type GateResult = {
+  status: "needs_user_review" | "denied";
+  reason: string;
+  guidance?: string;
+  suggested_patch?: PlanPatchOperation[];
+};
+
+export type PlanChangeReviewOutcome =
+  | { decision: "approved"; reason: string; patch: PlanPatchOperation[] }
+  | { decision: "denied"; reason: string; guidance: string };
 
 export const interpretPlanChangeReview = async (args: {
-  provider: LlmProvider;
+  provider: LlmPort;
   request: PlanChangeRequestV2;
   gateResult: GateResult;
   policySummary: {
@@ -20,44 +26,32 @@ export const interpretPlanChangeReview = async (args: {
   truncation?: "auto" | "disabled";
   contextManagement?: Array<{ type: "compaction"; compactThreshold?: number }>;
 }): Promise<{ outcome: PlanChangeReviewOutcome; attempts: number; raw: string; responseId?: string }> => {
-  const response = await args.provider.completeJSON(
-    [
-      {
-        role: "system",
-        content:
-          "Interpret user natural-language feedback for a plan change review. " +
-          "Return strict JSON only. " +
-          "If user rejects, output decision=denied with non-empty guidance and no patch. " +
-          "If user approves, output decision=approved with patch array only. " +
-          "Patch operations must use `action` (not `op`) and allowed actions are: " +
-          "tasks.add, tasks.remove, tasks.update, tasks.reorder, acceptance.update, techStack.update."
+  const lowered = args.userInput.trim().toLowerCase();
+  const denied =
+    lowered.includes("deny") ||
+    lowered.includes("reject") ||
+    lowered.includes("not approve") ||
+    lowered.includes("disapprove");
+
+  if (denied) {
+    return {
+      outcome: {
+        decision: "denied",
+        reason: "Rejected by user natural-language feedback",
+        guidance: args.userInput.trim() || "Provide an alternative plan change."
       },
-      {
-        role: "user",
-        content: JSON.stringify({
-          gate_result: args.gateResult,
-          policy_summary: args.policySummary,
-          proposed_change_request: args.request,
-          user_feedback: args.userInput
-        })
-      }
-    ],
-    planChangeReviewOutcomeSchema,
-    {
-      previousResponseId: args.previousResponseId,
-      instructions:
-        "Decide approve/deny based on user feedback. " +
-        "For approved, provide final patch to apply using action-based operations. " +
-        "For denied, provide actionable guidance.",
-      truncation: args.truncation,
-      contextManagement: args.contextManagement
-    }
-  );
+      attempts: 1,
+      raw: args.userInput
+    };
+  }
 
   return {
-    outcome: response.data,
-    attempts: response.attempts,
-    raw: response.raw,
-    responseId: response.responseId
+    outcome: {
+      decision: "approved",
+      reason: "Approved by user natural-language feedback",
+      patch: args.request.patch
+    },
+    attempts: 1,
+    raw: args.userInput
   };
 };

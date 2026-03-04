@@ -1,1 +1,1 @@
-export type { ToolResult } from "../../../agent/tools/types.js";
+export type { ToolResult } from "../../contracts/tools.js";

@@ -1,5 +1,4 @@
 export type FailureClass = "system" | "task";
-
 export type FailureSignal = {
   class: FailureClass;
   kind:
@@ -43,17 +42,17 @@ export const classifyFailure = (args: {
     fingerprint: fingerprintFailure(kind, message)
   });
 
-  if (text.includes("invalid input: expected object, received undefined") || text.includes("expected object, received undefined")) {
-    return mk("ToolInputInvalid", all[0] ?? "Invalid tool input (undefined)", "system");
+  if (text.includes("expected object") || text.includes("input is undefined")) {
+    return mk("ToolInputInvalid", all[0] ?? "Invalid tool input", "system");
   }
-  if (text.includes("base root 'appdir' is not available") || (text.includes("base root") && text.includes("not available"))) {
-    return mk("MissingBaseRoot", all.find((x) => x.toLowerCase().includes("base root")) ?? "Base root missing", "system");
+  if (text.includes("base root") && text.includes("not available")) {
+    return mk("MissingBaseRoot", all[0] ?? "Base root missing", "system");
   }
   if (text.includes("unknown tool")) {
-    return mk("UnknownTool", all.find((x) => x.toLowerCase().includes("unknown tool")) ?? "Unknown tool", "system");
+    return mk("UnknownTool", all[0] ?? "Unknown tool", "system");
   }
   if (text.includes("blocked by policy")) {
-    return mk("PolicyBlockedTool", all.find((x) => x.toLowerCase().includes("blocked by policy")) ?? "Tool blocked by policy", "system");
+    return mk("PolicyBlockedTool", all[0] ?? "Tool blocked by policy", "system");
   }
 
   if ((args.criteriaFailures ?? []).length > 0) {

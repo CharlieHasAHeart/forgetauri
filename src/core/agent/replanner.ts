@@ -1,22 +1,124 @@
-// Handles deterministic replan flow: propose change, gate decision, apply patch.
-import { evaluatePlanChange } from "../../agent/plan/gate.js";
-import { applyPlanChangePatch } from "../../agent/plan/patch.js";
-import type { AgentPolicy } from "./policy/policy.js";
-import { proposePlanChange } from "../../agent/planning/planner.js";
-import { PLAN_INSTRUCTIONS } from "../../agent/planning/prompts.js";
-import type { AgentState } from "../../agent/types.js";
-import type { LlmProvider } from "../../llm/provider.js";
+import type { AgentPolicy } from "../contracts/policy.js";
+import type { AgentState } from "../contracts/state.js";
+import type { LlmPort } from "../contracts/llm.js";
+import type { Planner, PlanChangeRequestV2, PlanPatchOperation, PlanTask, PlanV1 } from "../contracts/planning.js";
 import { summarizeState } from "./state_summary.js";
 import { setStateError } from "./errors.js";
 import { recordPlanChange } from "./recorder.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
-import type { PlanChangeRequestV2 } from "../../agent/plan/schema.js";
 import { interpretPlanChangeReview } from "./plan_change_review.js";
 import type { AgentEvent } from "./events.js";
 import type { PlanChangeReviewFn } from "./contracts.js";
+import { PLAN_INSTRUCTIONS } from "../contracts/planning.js";
+
+const evaluatePlanChange = (args: {
+  request: PlanChangeRequestV2;
+  policy: AgentPolicy;
+  currentTaskCount: number;
+}): { status: "needs_user_review" | "denied"; reason: string; guidance?: string } => {
+  if (!Array.isArray(args.request.patch) || args.request.patch.length === 0) {
+    return { status: "denied", reason: "Plan change patch is empty", guidance: "Provide at least one patch operation." };
+  }
+
+  const disallowedTools = new Set<string>();
+  for (const op of args.request.patch) {
+    if ((op.action === "acceptance.update" && args.policy.acceptance.locked) || (op.action === "techStack.update" && args.policy.tech_stack_locked)) {
+      return {
+        status: "denied",
+        reason: `Patch action ${op.action} is not allowed by policy lock`,
+        guidance: "Avoid changing locked acceptance or tech stack fields."
+      };
+    }
+
+    if (op.action === "tasks.update") {
+      const maybeChanges = op.changes as Record<string, unknown>;
+      if (typeof maybeChanges?.description === "string") {
+        const desc = maybeChanges.description.toLowerCase();
+        for (const tool of args.policy.safety.allowed_tools) {
+          if (!desc.includes(tool.toLowerCase())) continue;
+        }
+      }
+    }
+  }
+
+  if (disallowedTools.size > 0) {
+    return {
+      status: "denied",
+      reason: `Patch references tools outside policy allowlist: ${Array.from(disallowedTools).join(", ")}`,
+      guidance: "Use only tools listed in policy.safety.allowed_tools."
+    };
+  }
+
+  return { status: "needs_user_review", reason: "Plan change requires user review" };
+};
+
+const moveTask = (tasks: PlanTask[], taskId: string, afterTaskId?: string): PlanTask[] => {
+  const idx = tasks.findIndex((task) => task.id === taskId);
+  if (idx < 0) return tasks;
+  const [task] = tasks.splice(idx, 1);
+  if (!afterTaskId) {
+    tasks.unshift(task);
+    return tasks;
+  }
+  const afterIdx = tasks.findIndex((item) => item.id === afterTaskId);
+  if (afterIdx < 0) {
+    tasks.push(task);
+  } else {
+    tasks.splice(afterIdx + 1, 0, task);
+  }
+  return tasks;
+};
+
+const applyPlanChangePatch = (plan: PlanV1, request: PlanChangeRequestV2): PlanV1 => {
+  const tasks = [...plan.tasks];
+
+  for (const op of request.patch) {
+    if (op.action === "tasks.add") {
+      const next = { ...op.task, dependencies: [...(op.task.dependencies ?? [])], success_criteria: [...(op.task.success_criteria ?? [])] };
+      if (!op.after_task_id) {
+        tasks.unshift(next);
+      } else {
+        const afterIdx = tasks.findIndex((task) => task.id === op.after_task_id);
+        if (afterIdx < 0) tasks.push(next);
+        else tasks.splice(afterIdx + 1, 0, next);
+      }
+      continue;
+    }
+    if (op.action === "tasks.remove") {
+      const idx = tasks.findIndex((task) => task.id === op.task_id);
+      if (idx >= 0) tasks.splice(idx, 1);
+      continue;
+    }
+    if (op.action === "tasks.update") {
+      const idx = tasks.findIndex((task) => task.id === op.task_id);
+      if (idx < 0) continue;
+      tasks[idx] = {
+        ...tasks[idx],
+        ...(op.changes as Partial<PlanTask>),
+        dependencies: Array.isArray((op.changes as Partial<PlanTask>).dependencies)
+          ? [ ...((op.changes as Partial<PlanTask>).dependencies as string[]) ]
+          : tasks[idx].dependencies,
+        success_criteria: Array.isArray((op.changes as Partial<PlanTask>).success_criteria)
+          ? [ ...((op.changes as Partial<PlanTask>).success_criteria as PlanTask["success_criteria"]) ]
+          : tasks[idx].success_criteria
+      };
+      continue;
+    }
+    if (op.action === "tasks.reorder") {
+      moveTask(tasks, op.task_id, op.after_task_id);
+      continue;
+    }
+  }
+
+  return {
+    ...plan,
+    tasks
+  };
+};
 
 export const handleReplan = async (args: {
-  provider: LlmProvider;
+  provider: LlmPort;
+  planner: Planner;
   state: AgentState;
   policy: AgentPolicy;
   failedTaskId: string;
@@ -27,7 +129,7 @@ export const handleReplan = async (args: {
   requestPlanChangeReview: PlanChangeReviewFn;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<{ ok: boolean; replans: number }> => {
-  const { provider, state, policy } = args;
+  const { provider, planner, state, policy } = args;
   const currentPlan = state.planData;
   if (!currentPlan) {
     setStateError(state, "Config", "Missing current plan during replan");
@@ -35,8 +137,14 @@ export const handleReplan = async (args: {
     return { ok: false, replans: args.replans };
   }
 
+  if (!planner.proposePlanChange) {
+    state.status = "failed";
+    setStateError(state, "Config", "Planner does not support plan changes.");
+    return { ok: false, replans: args.replans };
+  }
+
   state.status = "replanning";
-  const changeProposal = await proposePlanChange({
+  const changeProposal = await planner.proposePlanChange({
     provider,
     goal: state.goal,
     currentPlan,
@@ -55,8 +163,8 @@ export const handleReplan = async (args: {
         ? [{ type: "compaction", compactThreshold: state.flags.compactionThreshold }]
         : undefined
   });
-  args.onEvent?.({ type: "replan_proposed" });
 
+  args.onEvent?.({ type: "replan_proposed" });
   state.lastResponseId = changeProposal.responseId ?? state.lastResponseId;
   state.planHistory?.push({ type: "change_request", request: changeProposal.changeRequest });
 
@@ -86,11 +194,7 @@ export const handleReplan = async (args: {
 
   if (gateResult.status === "denied") {
     state.status = "failed";
-    setStateError(
-      state,
-      "Config",
-      `Plan change denied: ${gateResult.reason}. Guidance: ${gateResult.guidance}`
-    );
+    setStateError(state, "Config", `Plan change denied: ${gateResult.reason}. Guidance: ${gateResult.guidance}`);
     return { ok: false, replans: args.replans };
   }
 
@@ -106,6 +210,7 @@ export const handleReplan = async (args: {
     policySummary,
     promptHint: "Use natural language: approve/reject this plan change. If rejecting, provide specific fix direction."
   });
+
   state.planHistory?.push({ type: "change_user_review_text", text: userText });
   args.onEvent?.({ type: "replan_review_text", text: userText.length > 240 ? `${userText.slice(0, 240)}...` : userText });
 
@@ -122,6 +227,7 @@ export const handleReplan = async (args: {
         ? [{ type: "compaction", compactThreshold: state.flags.compactionThreshold }]
         : undefined
   });
+
   state.lastResponseId = interpreted.responseId ?? state.lastResponseId;
   state.planHistory?.push({ type: "change_review_outcome", outcome: interpreted.outcome });
 
@@ -149,10 +255,12 @@ export const handleReplan = async (args: {
 
   const approvedPatchRequest: PlanChangeRequestV2 = {
     ...changeProposal.changeRequest,
-    patch: interpreted.outcome.patch
+    patch: interpreted.outcome.patch as PlanPatchOperation[]
   };
+
   state.planData = applyPlanChangePatch(currentPlan, approvedPatchRequest);
   state.planVersion = (state.planVersion ?? 1) + 1;
+  state.planHistory?.push({ type: "change_applied", version: state.planVersion, patch: approvedPatchRequest.patch });
   args.onEvent?.({ type: "replan_applied", newVersion: state.planVersion });
   return { ok: true, replans: args.replans + 1 };
 };

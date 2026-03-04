@@ -1,27 +1,29 @@
-import type { LlmProvider } from "../../llm/provider.js";
-import { getNextReadyTask } from "../../agent/plan/selectors.js";
-import type { PlanTask } from "../../agent/plan/schema.js";
-import type { AgentPolicy } from "./policy/policy.js";
-import type { AgentState } from "../../agent/types.js";
-import type { ToolRunContext, ToolSpec } from "../../agent/tools/types.js";
+import type { LlmPort } from "../contracts/llm.js";
+import type { PlanTask, Planner } from "../contracts/planning.js";
+import type { AgentPolicy } from "../contracts/policy.js";
+import type { RuntimePathsResolver } from "../contracts/runtime.js";
+import type { AgentState } from "../contracts/state.js";
+import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
 import { setUsedTurn } from "./budgets.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "./contracts.js";
 import { setStateError } from "./errors.js";
 import type { AgentEvent } from "./events.js";
 import { runTaskWithRetries } from "./task_runner.js";
-import { requiredInput } from "./util.js";
+import { requiredInput, getNextReadyTask } from "./util.js";
 
 export const runTurn = async (args: {
   turn: number;
   state: AgentState;
-  provider: LlmProvider;
+  provider: LlmPort;
+  planner: Planner;
   registry: Record<string, ToolSpec<any>>;
   ctx: ToolRunContext;
   maxTurns: number;
   maxToolCallsPerTurn: number;
   audit: AgentTurnAuditCollector;
   policy: AgentPolicy;
+  runtimePathsResolver: RuntimePathsResolver;
   completed: Set<string>;
   taskFailures: Map<string, string[]>;
   replans: number;
@@ -55,11 +57,13 @@ export const runTurn = async (args: {
     task: nextTask as PlanTask,
     state: args.state,
     provider: args.provider,
+    planner: args.planner,
     registry: args.registry,
     ctx: args.ctx,
     maxToolCallsPerTurn: args.maxToolCallsPerTurn,
     audit: args.audit,
     policy: args.policy,
+    runtimePathsResolver: args.runtimePathsResolver,
     completed: args.completed,
     taskFailures: args.taskFailures,
     replans: args.replans,
