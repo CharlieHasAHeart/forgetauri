@@ -26,6 +26,9 @@ export const interpretPlanChangeReview = async (args: {
   truncation?: "auto" | "disabled";
   contextManagement?: Array<{ type: "compaction"; compactThreshold?: number }>;
 }): Promise<{ outcome: PlanChangeReviewOutcome; attempts: number; raw: string; responseId?: string }> => {
+  // Intentionally not using `provider` in the core microkernel implementation.
+  // Plugin/app layers can replace this interpreter with model-backed behavior.
+  void args.provider;
   const lowered = args.userInput.trim().toLowerCase();
   const denied =
     lowered.includes("deny") ||

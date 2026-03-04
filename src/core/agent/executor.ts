@@ -1,9 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentPolicy } from "../contracts/policy.js";
 import type { PlanTask, SuccessCriterion, ToolCall } from "../contracts/planning.js";
 import type { AgentState } from "../contracts/state.js";
 import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
+import type { KernelHooks } from "../contracts/hooks.js";
 import { setStateError, truncate } from "./errors.js";
 import type { AgentEvent } from "./events.js";
 import type { HumanReviewFn as HumanReviewFnType } from "./contracts.js";
@@ -29,6 +30,7 @@ const evaluateCriterion = async (args: {
   toolResults: Array<{ name: string; ok: boolean }>;
   ctx: ToolRunContext;
   state: AgentState;
+  policy: AgentPolicy;
 }): Promise<{ ok: boolean; failure?: string; toolAudit?: { name: string; ok: boolean; error?: string } }> => {
   const c = args.criterion;
 
@@ -46,7 +48,7 @@ const evaluateCriterion = async (args: {
     const base = args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
     const target = join(base, c.path);
     try {
-      await readFile(target);
+      await access(target);
       return { ok: true };
     } catch {
       return { ok: false, failure: "criteria check failed: tool_check_file_exists" };
@@ -66,6 +68,15 @@ const evaluateCriterion = async (args: {
   }
 
   if (c.type === "command") {
+    if (!args.policy.safety.allowed_commands.includes(c.cmd)) {
+      const failure = `criteria check failed: command ${c.cmd} blocked by policy`;
+      setStateError(args.state, "Config", failure);
+      return {
+        ok: false,
+        failure,
+        toolAudit: { name: `${c.cmd} ${(c.args ?? []).join(" ")}`.trim(), ok: false, error: "blocked by policy" }
+      };
+    }
     const cwd = c.cwd ?? args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
     const result = await args.ctx.runCmdImpl(c.cmd, c.args ?? [], cwd);
     const expected = c.expect_exit_code ?? 0;
@@ -86,6 +97,7 @@ export const executeToolCall = async (args: {
   ctx: ToolRunContext;
   state: AgentState;
   policy: AgentPolicy;
+  hooks?: KernelHooks;
   humanReview?: HumanReviewFn;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<ExecutedToolCall> => {
@@ -125,21 +137,41 @@ export const executeToolCall = async (args: {
   }
 
   const touched = result.meta?.touchedPaths ?? [];
+  const previousPatchPathSet = new Set(state.patchPaths);
   state.touchedFiles = Array.from(new Set([...state.touchedFiles, ...touched]));
   state.patchPaths = Array.from(new Set([...state.patchPaths, ...args.ctx.memory.patchPaths]));
+  const newPatchPaths = state.patchPaths.filter((path) => !previousPatchPathSet.has(path));
+
+  if (newPatchPaths.length > 0) {
+    args.onEvent?.({ type: "patch_generated", paths: newPatchPaths });
+    if (args.hooks?.onPatchPathsChanged) {
+      try {
+        await args.hooks.onPatchPathsChanged({ patchPaths: newPatchPaths, ctx: args.ctx, state });
+      } catch (error) {
+        const note = `kernel hook onPatchPathsChanged failed: ${error instanceof Error ? error.message : String(error)}`;
+        setStateError(state, "Unknown", note);
+        return { ok: false, note, touchedPaths: touched, resultData: result.data, toolName: call.name };
+      }
+    }
+  }
 
   if (state.patchPaths.length > state.budgets.maxPatches) {
     setStateError(state, "Config", `Patch budget exceeded: ${state.patchPaths.length} > ${state.budgets.maxPatches}`);
     return { ok: false, note: state.lastError?.message, touchedPaths: touched, resultData: result.data, toolName: call.name };
   }
 
-  if (state.patchPaths.length > 0 && humanReview) {
+  if (newPatchPaths.length > 0 && humanReview) {
     const approved = await humanReview({
       reason: "Generated PATCH files require manual merge",
-      patchPaths: state.patchPaths,
+      patchPaths: newPatchPaths,
       phase: state.status
     });
-    state.humanReviews.push({ reason: "Generated PATCH files require manual merge", approved, patchPaths: state.patchPaths, phase: state.status });
+    state.humanReviews.push({
+      reason: "Generated PATCH files require manual merge",
+      approved,
+      patchPaths: newPatchPaths,
+      phase: state.status
+    });
     if (!approved) {
       setStateError(state, "Config", "Human review rejected automatic continuation after PATCH generation");
       return {
@@ -159,16 +191,18 @@ export const executeToolCall = async (args: {
       `${result.error?.message ?? "tool failed"}${result.error?.detail ? ` (${truncate(result.error.detail)})` : ""}`,
       result.error?.code
     );
-  } else if (result.data && typeof result.data === "object") {
-    const payload = result.data as Record<string, unknown>;
-    if (call.name === "tool_design_contract" && payload.contract && typeof payload.contract === "object") {
-      state.contract = payload.contract;
-    } else if (call.name === "tool_design_ux" && payload.ux && typeof payload.ux === "object") {
-      state.ux = payload.ux;
-    } else if (call.name === "tool_design_implementation" && payload.impl && typeof payload.impl === "object") {
-      state.impl = payload.impl;
-    } else if (call.name === "tool_design_delivery" && payload.delivery && typeof payload.delivery === "object") {
-      state.delivery = payload.delivery;
+  } else if (args.hooks?.onToolResult) {
+    try {
+      await args.hooks.onToolResult({
+        call: { name: call.name, input: call.input },
+        result,
+        ctx: args.ctx,
+        state
+      });
+    } catch (error) {
+      const note = `kernel hook onToolResult failed: ${error instanceof Error ? error.message : String(error)}`;
+      setStateError(state, "Unknown", note);
+      return { ok: false, note, touchedPaths: touched, resultData: result.data, toolName: call.name };
     }
   }
 
@@ -188,6 +222,7 @@ export const executeActionPlan = async (args: {
   ctx: ToolRunContext;
   state: AgentState;
   policy: AgentPolicy;
+  hooks?: KernelHooks;
   humanReview?: HumanReviewFn;
   task: PlanTask;
   onEvent?: (event: AgentEvent) => void;
@@ -210,6 +245,7 @@ export const executeActionPlan = async (args: {
       ctx: args.ctx,
       state: args.state,
       policy: args.policy,
+      hooks: args.hooks,
       humanReview: args.humanReview,
       onEvent: args.onEvent
     });
@@ -238,7 +274,8 @@ export const executeActionPlan = async (args: {
       criterion,
       toolResults: simpleToolResults,
       ctx: args.ctx,
-      state: args.state
+      state: args.state,
+      policy: args.policy
     });
     if (!verdict.ok && verdict.failure) {
       failures.push(verdict.failure);

@@ -4,6 +4,7 @@ import type { AgentPolicy } from "../contracts/policy.js";
 import type { RuntimePathsResolver } from "../contracts/runtime.js";
 import type { AgentState } from "../contracts/state.js";
 import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
+import type { KernelHooks } from "../contracts/hooks.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
 import { setUsedTurn } from "./budgets.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "./contracts.js";
@@ -24,6 +25,7 @@ export const runTurn = async (args: {
   audit: AgentTurnAuditCollector;
   policy: AgentPolicy;
   runtimePathsResolver: RuntimePathsResolver;
+  hooks?: KernelHooks;
   completed: Set<string>;
   taskFailures: Map<string, string[]>;
   replans: number;
@@ -64,6 +66,7 @@ export const runTurn = async (args: {
     audit: args.audit,
     policy: args.policy,
     runtimePathsResolver: args.runtimePathsResolver,
+    hooks: args.hooks,
     completed: args.completed,
     taskFailures: args.taskFailures,
     replans: args.replans,

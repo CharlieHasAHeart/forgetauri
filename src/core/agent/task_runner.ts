@@ -4,6 +4,7 @@ import type { AgentPolicy } from "../contracts/policy.js";
 import type { RuntimePathsResolver } from "../contracts/runtime.js";
 import type { AgentState } from "../contracts/state.js";
 import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
+import type { KernelHooks } from "../contracts/hooks.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "./contracts.js";
 import type { AgentEvent } from "./events.js";
@@ -24,6 +25,7 @@ export const runTaskWithRetries = async (args: {
   audit: AgentTurnAuditCollector;
   policy: AgentPolicy;
   runtimePathsResolver: RuntimePathsResolver;
+  hooks?: KernelHooks;
   completed: Set<string>;
   taskFailures: Map<string, string[]>;
   replans: number;
@@ -40,7 +42,6 @@ export const runTaskWithRetries = async (args: {
   let attempts = 0;
   let taskDone = false;
   let replans = args.replans;
-  const systemFailureSeen = new Map<string, Set<string>>();
 
   while (!taskDone && attempts < args.policy.budgets.max_retries_per_task) {
     attempts += 1;
@@ -60,6 +61,7 @@ export const runTaskWithRetries = async (args: {
       ctx: args.ctx,
       maxToolCallsPerTurn: args.maxToolCallsPerTurn,
       runtimePathsResolver: args.runtimePathsResolver,
+      hooks: args.hooks,
       audit: args.audit,
       humanReview: args.humanReview,
       onEvent: args.onEvent
@@ -86,15 +88,8 @@ export const runTaskWithRetries = async (args: {
     args.onEvent?.({ type: "criteria_result", ok: false, failures: failureForEvent });
 
     if (signal.class === "system") {
-      const seen = systemFailureSeen.get(args.task.id) ?? new Set<string>();
-      const alreadySeen = seen.has(signal.fingerprint);
-      seen.add(signal.fingerprint);
-      systemFailureSeen.set(args.task.id, seen);
       args.state.status = "failed";
       setStateError(args.state, "Config", signal.message);
-      if (alreadySeen) {
-        return { ok: false, replans };
-      }
       return { ok: false, replans };
     }
 

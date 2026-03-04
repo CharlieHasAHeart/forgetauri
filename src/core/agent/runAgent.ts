@@ -9,6 +9,7 @@ import type { CommandRunnerPort, RuntimePathsResolver } from "../contracts/runti
 import type { HumanReviewPort } from "./contracts.js";
 import type { LlmPort } from "../contracts/llm.js";
 import type { Planner } from "../contracts/planning.js";
+import type { KernelHooks } from "../contracts/hooks.js";
 import { noopPlanner } from "../defaults/noopPlanner.js";
 
 export type CoreRunAgentArgs = {
@@ -33,6 +34,7 @@ export type CoreRunAgentArgs = {
   modelHint?: string;
   runtimeRepoRoot?: string;
   runtimePathsResolver?: RuntimePathsResolver;
+  hooks?: KernelHooks;
   renderToolIndex?: (registry: Record<string, ToolSpec<any>>) => string;
   onEvent?: (event: AgentEvent) => void;
 };
@@ -137,7 +139,8 @@ export const runAgent = async (args: CoreRunAgentArgs): Promise<CoreRunAgentResu
       humanReview: args.humanReview?.humanReview,
       requestPlanChangeReview: args.humanReview?.requestPlanChangeReview,
       onEvent: args.onEvent ?? args.humanReview?.onEvent,
-      runtimePathsResolver
+      runtimePathsResolver,
+      hooks: args.hooks
     });
   } catch (error) {
     runError = error;

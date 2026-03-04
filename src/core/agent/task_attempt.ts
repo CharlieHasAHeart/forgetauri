@@ -4,6 +4,7 @@ import type { AgentPolicy } from "../contracts/policy.js";
 import type { RuntimePathsResolver } from "../contracts/runtime.js";
 import type { AgentState } from "../contracts/state.js";
 import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
+import type { KernelHooks } from "../contracts/hooks.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
 import { executeActionPlan } from "./executor.js";
 import { setStateError } from "./errors.js";
@@ -32,6 +33,7 @@ export const runTaskAttempt = async (args: {
   ctx: ToolRunContext;
   maxToolCallsPerTurn: number;
   runtimePathsResolver: RuntimePathsResolver;
+  hooks?: KernelHooks;
   audit: AgentTurnAuditCollector;
   humanReview?: HumanReviewFn;
   onEvent?: (event: AgentEvent) => void;
@@ -141,6 +143,7 @@ export const runTaskAttempt = async (args: {
     ctx: args.ctx,
     state: args.state,
     policy: args.policy,
+    hooks: args.hooks,
     humanReview: args.humanReview,
     task: args.task,
     onEvent: args.onEvent

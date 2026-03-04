@@ -14,13 +14,11 @@ import { PLAN_INSTRUCTIONS } from "../contracts/planning.js";
 const evaluatePlanChange = (args: {
   request: PlanChangeRequestV2;
   policy: AgentPolicy;
-  currentTaskCount: number;
 }): { status: "needs_user_review" | "denied"; reason: string; guidance?: string } => {
   if (!Array.isArray(args.request.patch) || args.request.patch.length === 0) {
     return { status: "denied", reason: "Plan change patch is empty", guidance: "Provide at least one patch operation." };
   }
 
-  const disallowedTools = new Set<string>();
   for (const op of args.request.patch) {
     if ((op.action === "acceptance.update" && args.policy.acceptance.locked) || (op.action === "techStack.update" && args.policy.tech_stack_locked)) {
       return {
@@ -29,24 +27,6 @@ const evaluatePlanChange = (args: {
         guidance: "Avoid changing locked acceptance or tech stack fields."
       };
     }
-
-    if (op.action === "tasks.update") {
-      const maybeChanges = op.changes as Record<string, unknown>;
-      if (typeof maybeChanges?.description === "string") {
-        const desc = maybeChanges.description.toLowerCase();
-        for (const tool of args.policy.safety.allowed_tools) {
-          if (!desc.includes(tool.toLowerCase())) continue;
-        }
-      }
-    }
-  }
-
-  if (disallowedTools.size > 0) {
-    return {
-      status: "denied",
-      reason: `Patch references tools outside policy allowlist: ${Array.from(disallowedTools).join(", ")}`,
-      guidance: "Use only tools listed in policy.safety.allowed_tools."
-    };
   }
 
   return { status: "needs_user_review", reason: "Plan change requires user review" };
@@ -170,8 +150,7 @@ export const handleReplan = async (args: {
 
   const gateResult = evaluatePlanChange({
     request: changeProposal.changeRequest,
-    policy,
-    currentTaskCount: currentPlan.tasks.length
+    policy
   });
 
   recordPlanChange({

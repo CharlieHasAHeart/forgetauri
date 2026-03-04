@@ -4,6 +4,7 @@ import type { LlmPort } from "../contracts/llm.js";
 import type { Planner } from "../contracts/planning.js";
 import type { RuntimePathsResolver } from "../contracts/runtime.js";
 import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
+import type { KernelHooks } from "../contracts/hooks.js";
 import type { AgentTurnAuditCollector } from "./audit.js";
 import { recordPlanProposed } from "./recorder.js";
 import { summarizeState } from "./state_summary.js";
@@ -24,6 +25,7 @@ export const runPlanFirstAgent = async (args: {
   audit: AgentTurnAuditCollector;
   policy: AgentPolicy;
   runtimePathsResolver: RuntimePathsResolver;
+  hooks?: KernelHooks;
   humanReview?: HumanReviewFn;
   requestPlanChangeReview?: PlanChangeReviewFn;
   onEvent?: (event: AgentEvent) => void;
@@ -97,6 +99,7 @@ export const runPlanFirstAgent = async (args: {
       audit,
       policy,
       runtimePathsResolver: args.runtimePathsResolver,
+      hooks: args.hooks,
       completed,
       taskFailures,
       replans,
