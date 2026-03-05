@@ -69,30 +69,26 @@ export const runTaskAttempt = async (args: {
         usage?: unknown;
         previousResponseIdSent?: string;
       };
-      if (args.planner.proposeToolCallsForTask) {
-        const packet = await args.contextEngine.buildContextPacket({
-          phase: "toolcall",
-          turn: args.turn,
-          state: args.state,
-          ctx: args.ctx,
-          registry: args.registry,
-          policy: args.policy,
-          workspace: args.workspace,
-          task: args.task,
-          plan: args.currentPlan,
-          failures: plannerRecentFailures
-        });
-        const serialized = serializeContextPacket(packet);
-        plannerContextRef = storeBlob(args.ctx, serialized, "context");
-        proposal = await args.planner.proposeToolCallsForTask({
-          context: packet,
-          task: args.task,
-          registry: args.registry,
-          policy: args.policy
-        });
-      } else {
-        proposal = { toolCalls: [], raw: "planner.proposeToolCallsForTask not implemented" };
-      }
+      const packet = await args.contextEngine.buildContextPacket({
+        phase: "toolcall",
+        turn: args.turn,
+        state: args.state,
+        ctx: args.ctx,
+        registry: args.registry,
+        policy: args.policy,
+        workspace: args.workspace,
+        task: args.task,
+        plan: args.currentPlan,
+        failures: plannerRecentFailures
+      });
+      const serialized = serializeContextPacket(packet);
+      plannerContextRef = storeBlob(args.ctx, serialized, "context");
+      proposal = await args.planner.proposeToolCallsForTask({
+        context: packet,
+        task: args.task,
+        registry: args.registry,
+        policy: args.policy
+      });
 
       plannerRaw = proposal.raw;
       plannerResponseId = proposal.responseId;

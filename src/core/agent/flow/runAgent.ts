@@ -8,15 +8,14 @@ import type { AgentPolicy } from "../../contracts/policy.js";
 import type { CommandRunnerPort, RuntimePathsResolver } from "../../contracts/runtime.js";
 import type { HumanReviewPort } from "../contracts.js";
 import type { LlmPort } from "../../contracts/llm.js";
-import type { Planner } from "../../contracts/planning.js";
 import type { KernelHooks } from "../../contracts/hooks.js";
 import type { Workspace } from "../../contracts/workspace.js";
-import { noopPlanner } from "../../defaults/noopPlanner.js";
 import { applyMiddlewares } from "../../middleware/applyMiddlewares.js";
 import type { KernelMiddleware } from "../../middleware/types.js";
 import { ContextEngine } from "../../context_engine/ContextEngine.js";
 import { MemoryStore } from "../../memory/MemoryStore.js";
 import { createVerifyRunTool } from "../../tools/verify/runVerifiedCommand.js";
+import { createDefaultPlanner } from "../../defaults/defaultPlanner.js";
 
 export type CoreRunAgentResult = {
   ok: boolean;
@@ -42,7 +41,6 @@ export type CoreRunDeps = {
   registry: Record<string, ToolSpec<any>>;
   llm: LlmPort;
   commandRunner: CommandRunnerPort;
-  planner?: Planner;
   audit?: AgentTurnAuditCollector;
   humanReview?: HumanReviewPort;
   middlewares?: KernelMiddleware[];
@@ -148,13 +146,14 @@ export const runCoreAgent = async (args: {
     hooks: deps.hooks
   });
   ctx.provider = installed.provider;
+  const planner = createDefaultPlanner({ provider: installed.provider });
 
   let runError: unknown;
   try {
     await runPlanFirstAgent({
       state,
       provider: installed.provider,
-      planner: deps.planner ?? noopPlanner,
+      planner,
       registry: installed.registry,
       ctx,
       maxTurns,

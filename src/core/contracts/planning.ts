@@ -12,13 +12,13 @@ export type Planner = {
     registry: Record<string, ToolSpec<any>>;
     policy: AgentPolicy;
   }) => Promise<{ plan: PlanV1; raw: string; responseId?: string; usage?: unknown; previousResponseIdSent?: string }>;
-  proposeToolCallsForTask?: (args: {
+  proposeToolCallsForTask: (args: {
     context: ContextPacket;
     task: PlanTask;
     registry: Record<string, ToolSpec<any>>;
     policy: AgentPolicy;
   }) => Promise<{ toolCalls: ToolCall[]; raw: string; responseId?: string; usage?: unknown; previousResponseIdSent?: string }>;
-  proposePlanChange?: (args: {
+  proposePlanChange: (args: {
     context: ContextPacket;
     currentPlan: PlanV1;
     evidence?: Evidence;

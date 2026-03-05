@@ -124,12 +124,6 @@ export const handleReplan = async (args: {
     return { ok: false, replans: args.replans };
   }
 
-  if (!planner.proposePlanChange) {
-    state.status = "failed";
-    setStateError(state, "Config", "Planner does not support plan changes.");
-    return { ok: false, replans: args.replans };
-  }
-
   state.status = "replanning";
   const replanContext = await args.contextEngine.buildContextPacket({
     phase: "replan",
