@@ -1,8 +1,8 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { LlmMessage, LlmPort } from "../contracts/llm.js";
-import type { ToolRunContext, ToolSpec } from "../contracts/tools.js";
-import type { KernelMiddleware } from "./types.js";
+import type { LlmMessage, LlmPort } from "../core/contracts/llm.js";
+import type { ToolRunContext, ToolSpec } from "../core/contracts/tools.js";
+import type { KernelMiddleware } from "../core/middleware/types.js";
 
 export type FilesystemMiddlewareOptions = {
   baseDir?: string;
