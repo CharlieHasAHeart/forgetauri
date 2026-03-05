@@ -3,7 +3,7 @@ import type { AgentState } from "../../contracts/state.js";
 export const summarizeState = (state: AgentState): Record<string, unknown> => ({
   status: state.status,
   goal: state.goal,
-  outDir: state.outDir,
+  runDir: state.runDir,
   appDir: state.appDir,
   planVersion: state.planVersion,
   completedTasks: state.completedTasks ?? [],

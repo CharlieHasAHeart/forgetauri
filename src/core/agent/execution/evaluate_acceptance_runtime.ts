@@ -20,8 +20,8 @@ export const evaluateAcceptanceRuntime = (args: {
 }): EvaluationResult => {
   const runtime = args.state.runtimePaths ?? args.ctx.memory.runtimePaths ?? {
     repoRoot: args.ctx.memory.repoRoot ?? process.cwd(),
-    appDir: args.ctx.memory.appDir ?? args.state.appDir ?? args.state.outDir,
-    tauriDir: args.ctx.memory.tauriDir ?? `${args.ctx.memory.appDir ?? args.state.appDir ?? args.state.outDir}/src-tauri`
+    appDir: args.ctx.memory.appDir ?? args.state.appDir ?? args.state.runDir,
+    tauriDir: args.ctx.memory.tauriDir ?? `${args.ctx.memory.appDir ?? args.state.appDir ?? args.state.runDir}/src-tauri`
   };
 
   return {

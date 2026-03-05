@@ -29,7 +29,7 @@ export const defaultGetRuntimePaths = (ctx: ToolRunContext, state: AgentState): 
 
   const repoRootCandidate = ctx.memory.repoRoot ?? state.projectRoot ?? process.cwd();
   const repoRoot = toAbsoluteNormalized(repoRootCandidate, process.cwd());
-  const appDirCandidate = ctx.memory.appDir ?? state.appDir ?? ctx.memory.outDir ?? state.outDir ?? join(repoRoot, "generated/app");
+  const appDirCandidate = ctx.memory.appDir ?? state.appDir ?? ctx.memory.runDir ?? state.runDir ?? join(repoRoot, "generated/app");
   const appDir = toAbsoluteNormalized(appDirCandidate, repoRoot);
   const tauriDirCandidate = ctx.memory.tauriDir ?? join(appDir, "src-tauri");
   const tauriDir = toAbsoluteNormalized(tauriDirCandidate, repoRoot);

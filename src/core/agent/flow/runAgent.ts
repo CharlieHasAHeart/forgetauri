@@ -15,31 +15,6 @@ import { noopPlanner } from "../../defaults/noopPlanner.js";
 import { applyMiddlewares } from "../../middleware/applyMiddlewares.js";
 import type { KernelMiddleware } from "../../middleware/types.js";
 
-export type CoreRunAgentArgs = {
-  goal: string;
-  specPath: string;
-  outDir: string;
-  maxTurns?: number;
-  maxToolCallsPerTurn?: number;
-  maxPatches?: number;
-  truncation?: "auto" | "disabled";
-  compactionThreshold?: number;
-  policy: AgentPolicy;
-  registry: Record<string, ToolSpec<any>>;
-  llm: LlmPort;
-  commandRunner: CommandRunnerPort;
-  planner?: Planner;
-  audit?: AgentTurnAuditCollector;
-  humanReview?: HumanReviewPort;
-  modelHint?: string;
-  runtimeRepoRoot?: string;
-  runtimePathsResolver?: RuntimePathsResolver;
-  middlewares?: KernelMiddleware[];
-  hooks?: KernelHooks;
-  renderToolIndex?: (registry: Record<string, ToolSpec<any>>) => string;
-  onEvent?: (event: AgentEvent) => void;
-};
-
 export type CoreRunAgentResult = {
   ok: boolean;
   summary: string;
@@ -92,8 +67,8 @@ export const runCoreAgent = async (args: {
 
   const state: AgentState = {
     goal: request.goal,
-    specPath: workspace.inputs?.specRef ?? "",
-    outDir: workspace.runDir,
+    specRef: workspace.inputs?.specRef ?? "",
+    runDir: workspace.runDir,
     flags: {
       truncation,
       compactionThreshold
@@ -128,7 +103,7 @@ export const runCoreAgent = async (args: {
       workspace,
       repoRoot: workspace.root,
       specRef: workspace.inputs?.specRef,
-      outDir: state.outDir,
+      runDir: state.runDir,
       patchPaths: [],
       touchedPaths: []
     }
@@ -145,7 +120,7 @@ export const runCoreAgent = async (args: {
   const audit = deps.audit ?? new AgentTurnAuditCollector(request.goal);
   await audit.start(workspace.runDir, {
     specRef: workspace.inputs?.specRef,
-    outDir: state.outDir,
+    runDir: state.runDir,
     providerName: deps.llm.name,
     model: request.modelHint,
     truncation: state.flags.truncation,
@@ -189,7 +164,7 @@ export const runCoreAgent = async (args: {
     };
   }
 
-  const base = state.appDir ?? state.outDir;
+  const base = state.appDir ?? state.runDir;
   const auditPath = await audit.flush(base, {
     ok: state.status === "done",
     verifyHistory: state.verifyHistory,
@@ -226,43 +201,4 @@ export const runCoreAgent = async (args: {
     patchPaths: state.patchPaths,
     state
   };
-};
-
-export const runAgent = async (args: CoreRunAgentArgs): Promise<CoreRunAgentResult> => {
-  const workspace: Workspace = {
-    root: args.runtimeRepoRoot ?? process.cwd(),
-    runDir: args.outDir,
-    inputs: {
-      specRef: args.specPath
-    },
-    paths: {}
-  };
-  return runCoreAgent({
-    request: {
-      goal: args.goal,
-      modelHint: args.modelHint
-    },
-    workspace,
-    runtime: {
-      runtimePathsResolver: args.runtimePathsResolver,
-      maxTurns: args.maxTurns,
-      maxToolCallsPerTurn: args.maxToolCallsPerTurn,
-      maxPatches: args.maxPatches,
-      truncation: args.truncation,
-      compactionThreshold: args.compactionThreshold
-    },
-    deps: {
-      policy: args.policy,
-      registry: args.registry,
-      llm: args.llm,
-      commandRunner: args.commandRunner,
-      planner: args.planner,
-      audit: args.audit,
-      humanReview: args.humanReview,
-      middlewares: args.middlewares,
-      hooks: args.hooks,
-      renderToolIndex: args.renderToolIndex,
-      onEvent: args.onEvent
-    }
-  });
 };

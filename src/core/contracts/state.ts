@@ -6,8 +6,8 @@ export type ErrorKind = "Unknown" | "Config";
 
 export type AgentState = {
   goal: string;
-  specPath: string;
-  outDir: string;
+  specRef: string;
+  runDir: string;
   appDir?: string;
   projectRoot?: string;
   runtimePaths?: RuntimePaths;

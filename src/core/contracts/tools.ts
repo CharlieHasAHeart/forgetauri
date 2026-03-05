@@ -24,8 +24,8 @@ export type ToolRunContext = {
   };
   memory: {
     repoRoot?: string;
-    specPath?: string;
-    outDir?: string;
+    specRef?: string;
+    runDir?: string;
     appDir?: string;
     tauriDir?: string;
     runtimePaths?: RuntimePaths;

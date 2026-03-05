@@ -23,7 +23,7 @@ export class AgentTurnAuditCollector {
   private startedAt = new Date().toISOString();
   private startup?: {
     specRef?: string;
-    outDir?: string;
+    runDir?: string;
     providerName?: string;
     model?: string;
     truncation?: "auto" | "disabled";
@@ -55,7 +55,7 @@ export class AgentTurnAuditCollector {
     baseRoot: string,
     startup?: {
       specRef?: string;
-      outDir?: string;
+      runDir?: string;
       providerName?: string;
       model?: string;
       truncation?: "auto" | "disabled";

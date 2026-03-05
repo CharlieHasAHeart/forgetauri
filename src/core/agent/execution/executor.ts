@@ -45,7 +45,7 @@ const evaluateCriterion = async (args: {
   }
 
   if (c.type === "file_exists") {
-    const base = args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
+    const base = args.state.appDir ?? args.ctx.memory.appDir ?? args.state.runDir;
     const target = join(base, c.path);
     try {
       await access(target);
@@ -56,7 +56,7 @@ const evaluateCriterion = async (args: {
   }
 
   if (c.type === "file_contains") {
-    const base = args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
+    const base = args.state.appDir ?? args.ctx.memory.appDir ?? args.state.runDir;
     const target = join(base, c.path);
     try {
       const content = await readFile(target, "utf8");
@@ -77,7 +77,7 @@ const evaluateCriterion = async (args: {
         toolAudit: { name: `${c.cmd} ${(c.args ?? []).join(" ")}`.trim(), ok: false, error: "blocked by policy" }
       };
     }
-    const cwd = c.cwd ?? args.state.appDir ?? args.ctx.memory.appDir ?? args.state.outDir;
+    const cwd = c.cwd ?? args.state.appDir ?? args.ctx.memory.appDir ?? args.state.runDir;
     const result = await args.ctx.runCmdImpl(c.cmd, c.args ?? [], cwd);
     const expected = c.expect_exit_code ?? 0;
     if (result.code === expected && result.ok) return { ok: true };

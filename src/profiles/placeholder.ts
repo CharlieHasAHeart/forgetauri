@@ -3,7 +3,7 @@ import type { Workspace } from "../core/contracts/workspace.js";
 
 export type AgentProfile = {
   name: string;
-  build: (input: { goal: string; specPath: string }) => {
+  build: (input: { goal: string; workspace: Workspace }) => {
     request: CoreRunRequest;
     workspace: Workspace;
     runtime: CoreRunRuntime;

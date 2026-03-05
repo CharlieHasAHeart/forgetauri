@@ -8,6 +8,6 @@ export const preflightRuntime = (args: { state: AgentState; ctx: ToolRunContext 
 
   if (!state.appDir) {
     if (ctx.memory.appDir) state.appDir = ctx.memory.appDir;
-    else if (state.outDir) state.appDir = state.outDir;
+    else if (state.runDir) state.appDir = state.runDir;
   }
 };
