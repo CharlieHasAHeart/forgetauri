@@ -21,7 +21,13 @@ export const defaultAgentPolicy = (args: {
     criteria: []
   },
   safety: {
-    allowed_tools: [...args.allowedTools].sort((a, b) => a.localeCompare(b)),
+    allowed_tools: Array.from(
+      new Set(
+        [...args.allowedTools, "apply_structured_edits"].filter(
+          (name) => name !== "write_file" && name !== "edit_file" && name !== "delete_file"
+        )
+      )
+    ).sort((a, b) => a.localeCompare(b)),
     allowed_commands: ["pnpm", "cargo", "node", "tauri"]
   },
   budgets: {

@@ -8,6 +8,7 @@ export type FilesystemMiddlewareOptions = {
   baseDir?: string;
   maxChars?: number;
   maxFiles?: number;
+  readOnly?: boolean;
 };
 
 export type FileData = {
@@ -174,21 +175,27 @@ const parseIntPositive = (value: unknown, fallback: number): number => {
   return Math.floor(value);
 };
 
-const filesystemSystemPromptBody = (maxChars: number): string =>
+const filesystemSystemPromptBody = (args: { maxChars: number; readOnly: boolean }): string =>
   [
-    "You can use filesystem tools: ls, read_file, write_file, edit_file, glob, grep, read_blob.",
+    args.readOnly
+      ? "You can use read-only filesystem tools: ls, read_file, glob, grep, read_blob."
+      : "You can use filesystem tools: ls, read_file, write_file, edit_file, glob, grep, read_blob.",
     "Use read_file/grep before assumptions; never invent file contents.",
     "When a tool returns a ref, use read_blob to fetch full content.",
     "All paths are confined to middleware baseDir. Never attempt path traversal.",
-    `Keep outputs concise. Large outputs may be truncated with ref handles (maxChars=${maxChars}).`
+    `Keep outputs concise. Large outputs may be truncated with ref handles (maxChars=${args.maxChars}).`
   ].join(" ");
 
 export const filesystemSystemPrompt = (opts?: FilesystemMiddlewareOptions): string =>
-  filesystemSystemPromptBody(opts?.maxChars ?? DEFAULT_MAX_CHARS);
+  filesystemSystemPromptBody({
+    maxChars: opts?.maxChars ?? DEFAULT_MAX_CHARS,
+    readOnly: opts?.readOnly ?? true
+  });
 
 export const createFilesystemMiddleware = (opts?: FilesystemMiddlewareOptions): KernelMiddleware => {
   const maxChars = opts?.maxChars ?? DEFAULT_MAX_CHARS;
   const maxFiles = opts?.maxFiles ?? DEFAULT_MAX_FILES;
+  const readOnly = opts?.readOnly ?? true;
 
   const toolLs: ToolSpec = {
     name: "ls",
@@ -496,7 +503,7 @@ export const createFilesystemMiddleware = (opts?: FilesystemMiddlewareOptions): 
 
   const wrapProvider = (provider: LlmPort): LlmPort => {
     const prependSystem = (messages: LlmMessage[]): LlmMessage[] => [
-      { role: "system", content: filesystemSystemPromptBody(maxChars) },
+      { role: "system", content: filesystemSystemPromptBody({ maxChars, readOnly }) },
       ...messages
     ];
 
@@ -523,15 +530,20 @@ export const createFilesystemMiddleware = (opts?: FilesystemMiddlewareOptions): 
       if (typeof mem.fsBlobSeq !== "number") mem.fsBlobSeq = 0;
       mem.fsBaseDir = getBaseDir(ctx, opts);
     },
-    tools: () => ({
-      ls: toolLs,
-      read_file: toolReadFile,
-      write_file: toolWriteFile,
-      edit_file: toolEditFile,
-      glob: toolGlob,
-      grep: toolGrep,
-      read_blob: toolReadBlob
-    }),
+    tools: () => {
+      const out: Record<string, ToolSpec<any>> = {
+        ls: toolLs,
+        read_file: toolReadFile,
+        glob: toolGlob,
+        grep: toolGrep,
+        read_blob: toolReadBlob
+      };
+      if (!readOnly) {
+        out.write_file = toolWriteFile;
+        out.edit_file = toolEditFile;
+      }
+      return out;
+    },
     wrapProvider,
     hooks: {
       onToolResult: ({ result, ctx }) => {

@@ -14,7 +14,8 @@ import { applyMiddlewares } from "../../middleware/applyMiddlewares.js";
 import type { KernelMiddleware } from "../../middleware/types.js";
 import { ContextEngine } from "../../context_engine/ContextEngine.js";
 import { MemoryStore } from "../../memory/MemoryStore.js";
-import { createVerifyRunTool } from "../../tools/verify/runVerifiedCommand.js";
+import { createVerifyRunTool } from "../../../tools/verify/runVerifiedCommand.js";
+import { createApplyStructuredEditsTool } from "../../../tools/patch/applyStructuredEdits.js";
 import { createDefaultPlanner } from "../../defaults/defaultPlanner.js";
 
 export type CoreRunAgentResult = {
@@ -134,7 +135,8 @@ export const runCoreAgent = async (args: {
 
   const registryWithCoreTools: Record<string, ToolSpec<any>> = {
     ...deps.registry,
-    verify_run: createVerifyRunTool(state)
+    verify_run: createVerifyRunTool(state),
+    apply_structured_edits: createApplyStructuredEditsTool(state)
   };
 
   const installed = await applyMiddlewares({
