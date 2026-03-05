@@ -1,5 +1,6 @@
 import type { LlmPort } from "../../contracts/llm.js";
 import type { PlanChangeRequestV2, PlanPatchOperation } from "../../contracts/planning.js";
+import type { ContextPacket } from "../../contracts/context.js";
 
 export type GateResult = {
   status: "needs_user_review" | "denied";
@@ -22,13 +23,13 @@ export const interpretPlanChangeReview = async (args: {
     allowedTools: string[];
   };
   userInput: string;
+  context?: ContextPacket;
   previousResponseId?: string;
-  truncation?: "auto" | "disabled";
-  contextManagement?: Array<{ type: "compaction"; compactThreshold?: number }>;
 }): Promise<{ outcome: PlanChangeReviewOutcome; attempts: number; raw: string; responseId?: string }> => {
   // Intentionally not using `provider` in the core microkernel implementation.
   // Plugin/app layers can replace this interpreter with model-backed behavior.
   void args.provider;
+  void args.context;
   const lowered = args.userInput.trim().toLowerCase();
   const denied =
     lowered.includes("deny") ||

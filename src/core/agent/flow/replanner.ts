@@ -2,14 +2,17 @@ import type { AgentPolicy } from "../../contracts/policy.js";
 import type { AgentState } from "../../contracts/state.js";
 import type { LlmPort } from "../../contracts/llm.js";
 import type { Planner, PlanChangeRequestV2, PlanPatchOperation, PlanTask, PlanV1 } from "../../contracts/planning.js";
-import { summarizeState } from "../state/state_summary.js";
+import type { ToolRunContext, ToolSpec } from "../../contracts/tools.js";
+import type { Workspace } from "../../contracts/workspace.js";
 import { setStateError } from "../execution/errors.js";
 import { recordPlanChange } from "../telemetry/recorder.js";
 import type { AgentTurnAuditCollector } from "../telemetry/audit.js";
 import { interpretPlanChangeReview } from "../policy/plan_change_review.js";
 import type { AgentEvent } from "../telemetry/events.js";
 import type { PlanChangeReviewFn } from "../contracts.js";
-import { PLAN_INSTRUCTIONS } from "../../contracts/planning.js";
+import { ContextEngine } from "../../context_engine/ContextEngine.js";
+import { serializeContextPacket } from "../../contracts/context.js";
+import { storeBlob } from "../../utils/blobStore.js";
 
 const evaluatePlanChange = (args: {
   request: PlanChangeRequestV2;
@@ -101,6 +104,10 @@ export const handleReplan = async (args: {
   planner: Planner;
   state: AgentState;
   policy: AgentPolicy;
+  ctx: ToolRunContext;
+  registry: Record<string, ToolSpec<any>>;
+  workspace: Workspace;
+  contextEngine: ContextEngine;
   failedTaskId: string;
   failures: string[];
   replans: number;
@@ -124,24 +131,24 @@ export const handleReplan = async (args: {
   }
 
   state.status = "replanning";
-  const changeProposal = await planner.proposePlanChange({
-    provider,
-    goal: state.goal,
-    currentPlan,
+  const replanContext = await args.contextEngine.buildContextPacket({
+    phase: "replan",
+    turn: args.turn,
+    state,
+    ctx: args.ctx,
+    registry: args.registry,
     policy,
-    stateSummary: {
-      ...(summarizeState(state) as Record<string, unknown>),
-      failedTask: args.failedTaskId,
-      failures: args.failures
-    },
-    failureEvidence: args.failures,
-    previousResponseId: state.lastResponseId,
-    instructions: PLAN_INSTRUCTIONS,
-    truncation: state.flags.truncation,
-    contextManagement:
-      typeof state.flags.compactionThreshold === "number"
-        ? [{ type: "compaction", compactThreshold: state.flags.compactionThreshold }]
-        : undefined
+    workspace: args.workspace,
+    plan: currentPlan,
+    failures: args.failures
+  });
+  const replanContextRef = storeBlob(args.ctx, serializeContextPacket(replanContext), "context");
+  const changeProposal = await planner.proposePlanChange({
+    context: replanContext,
+    currentPlan,
+    evidence: state.lastEvidence,
+    registry: args.registry,
+    policy,
   });
 
   args.onEvent?.({ type: "replan_proposed" });
@@ -157,6 +164,8 @@ export const handleReplan = async (args: {
     audit: args.audit,
     turn: args.turn,
     llmRaw: changeProposal.raw,
+    contextPacketRef: replanContextRef,
+    evidenceRef: state.lastEvidence?.stderrRef ?? state.lastEvidence?.stdoutRef,
     previousResponseIdSent: changeProposal.previousResponseIdSent,
     responseId: changeProposal.responseId,
     usage: changeProposal.usage,
@@ -193,18 +202,26 @@ export const handleReplan = async (args: {
   state.planHistory?.push({ type: "change_user_review_text", text: userText });
   args.onEvent?.({ type: "replan_review_text", text: userText.length > 240 ? `${userText.slice(0, 240)}...` : userText });
 
+  const reviewContext = await args.contextEngine.buildContextPacket({
+    phase: "review",
+    turn: args.turn,
+    state,
+    ctx: args.ctx,
+    registry: args.registry,
+    policy,
+    workspace: args.workspace,
+    plan: currentPlan,
+    failures: args.failures
+  });
+
   const interpreted = await interpretPlanChangeReview({
     provider,
     request: changeProposal.changeRequest,
     gateResult,
     policySummary,
     userInput: userText,
-    previousResponseId: state.lastResponseId,
-    truncation: state.flags.truncation,
-    contextManagement:
-      typeof state.flags.compactionThreshold === "number"
-        ? [{ type: "compaction", compactThreshold: state.flags.compactionThreshold }]
-        : undefined
+    context: reviewContext,
+    previousResponseId: state.lastResponseId
   });
 
   state.lastResponseId = interpreted.responseId ?? state.lastResponseId;

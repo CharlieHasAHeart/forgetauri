@@ -3,6 +3,9 @@ import type { AgentTurnAuditCollector } from "./audit.js";
 export const recordPlanProposed = (args: {
   audit: AgentTurnAuditCollector;
   llmRaw: string;
+  contextPacketRef?: string;
+  contextPacketDigest?: string;
+  evidenceRef?: string;
   previousResponseIdSent?: string;
   responseId?: string;
   usage?: unknown;
@@ -11,6 +14,9 @@ export const recordPlanProposed = (args: {
   args.audit.recordTurn({
     turn: 0,
     llmRaw: args.llmRaw,
+    contextPacketRef: args.contextPacketRef,
+    contextPacketDigest: args.contextPacketDigest,
+    evidenceRef: args.evidenceRef,
     llmPreviousResponseId: args.previousResponseIdSent,
     llmResponseId: args.responseId,
     llmUsage: args.usage,
@@ -25,6 +31,9 @@ export const recordTaskActionPlan = (args: {
   turn: number;
   taskId: string;
   llmRaw: string;
+  contextPacketRef?: string;
+  contextPacketDigest?: string;
+  evidenceRef?: string;
   previousResponseIdSent?: string;
   responseId?: string;
   usage?: unknown;
@@ -34,6 +43,9 @@ export const recordTaskActionPlan = (args: {
   args.audit.recordTurn({
     turn: args.turn,
     llmRaw: args.llmRaw,
+    contextPacketRef: args.contextPacketRef,
+    contextPacketDigest: args.contextPacketDigest,
+    evidenceRef: args.evidenceRef,
     llmPreviousResponseId: args.previousResponseIdSent,
     llmResponseId: args.responseId,
     llmUsage: args.usage,
@@ -47,6 +59,9 @@ export const recordPlanChange = (args: {
   audit: AgentTurnAuditCollector;
   turn: number;
   llmRaw: string;
+  contextPacketRef?: string;
+  contextPacketDigest?: string;
+  evidenceRef?: string;
   previousResponseIdSent?: string;
   responseId?: string;
   usage?: unknown;
@@ -55,6 +70,9 @@ export const recordPlanChange = (args: {
   args.audit.recordTurn({
     turn: args.turn,
     llmRaw: args.llmRaw,
+    contextPacketRef: args.contextPacketRef,
+    contextPacketDigest: args.contextPacketDigest,
+    evidenceRef: args.evidenceRef,
     llmPreviousResponseId: args.previousResponseIdSent,
     llmResponseId: args.responseId,
     llmUsage: args.usage,

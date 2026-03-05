@@ -5,14 +5,16 @@ import type { Planner } from "../../contracts/planning.js";
 import type { RuntimePathsResolver } from "../../contracts/runtime.js";
 import type { ToolRunContext, ToolSpec } from "../../contracts/tools.js";
 import type { KernelHooks } from "../../contracts/hooks.js";
+import type { Workspace } from "../../contracts/workspace.js";
 import type { AgentTurnAuditCollector } from "../telemetry/audit.js";
 import { recordPlanProposed } from "../telemetry/recorder.js";
-import { summarizeState } from "../state/state_summary.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "../contracts.js";
 import type { AgentEvent } from "../telemetry/events.js";
 import { runTurn } from "./turn.js";
 import { preflightRuntime } from "../runtime/preflight.js";
-import { PLAN_INSTRUCTIONS } from "../../contracts/planning.js";
+import { ContextEngine } from "../../context_engine/ContextEngine.js";
+import { serializeContextPacket } from "../../contracts/context.js";
+import { storeBlob } from "../../utils/blobStore.js";
 
 export const runPlanFirstAgent = async (args: {
   state: AgentState;
@@ -25,6 +27,8 @@ export const runPlanFirstAgent = async (args: {
   audit: AgentTurnAuditCollector;
   policy: AgentPolicy;
   runtimePathsResolver: RuntimePathsResolver;
+  workspace: Workspace;
+  contextEngine: ContextEngine;
   hooks?: KernelHooks;
   humanReview?: HumanReviewFn;
   requestPlanChangeReview?: PlanChangeReviewFn;
@@ -39,20 +43,21 @@ export const runPlanFirstAgent = async (args: {
 
   state.status = "planning";
 
-  const planProposal = await planner.proposePlan({
-    goal: state.goal,
-    provider,
+  const planContext = await args.contextEngine.buildContextPacket({
+    phase: "planning",
+    turn: 0,
+    state,
+    ctx,
     registry,
-    stateSummary: summarizeState(state),
     policy,
-    maxToolCallsPerTurn,
-    instructions: PLAN_INSTRUCTIONS,
-    previousResponseId: state.lastResponseId,
-    truncation: state.flags.truncation,
-    contextManagement:
-      typeof state.flags.compactionThreshold === "number"
-        ? [{ type: "compaction", compactThreshold: state.flags.compactionThreshold }]
-        : undefined
+    workspace: args.workspace
+  });
+  const planRawContext = serializeContextPacket(planContext);
+  const planContextRef = storeBlob(ctx, planRawContext, "context");
+  const planProposal = await planner.proposePlan({
+    context: planContext,
+    registry,
+    policy
   });
 
   state.lastResponseId = planProposal.responseId ?? state.lastResponseId;
@@ -65,6 +70,7 @@ export const runPlanFirstAgent = async (args: {
   recordPlanProposed({
     audit,
     llmRaw: planProposal.raw,
+    contextPacketRef: planContextRef,
     previousResponseIdSent: planProposal.previousResponseIdSent,
     responseId: planProposal.responseId,
     usage: planProposal.usage,
@@ -105,7 +111,9 @@ export const runPlanFirstAgent = async (args: {
       replans,
       humanReview: args.humanReview,
       requestPlanChangeReview,
-      onEvent: args.onEvent
+      onEvent: args.onEvent,
+      contextEngine: args.contextEngine,
+      workspace: args.workspace
     });
     replans = turnResult.replans;
     if (turnResult.status === "done" || turnResult.status === "failed") break;

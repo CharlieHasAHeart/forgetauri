@@ -1,5 +1,6 @@
 import type { PlanChangeRequestV2, PlanPatchOperation, PlanV1, ToolCall } from "./planning.js";
 import type { RuntimePaths } from "./runtime.js";
+import type { Evidence } from "./context.js";
 
 export type AgentStatus = "planning" | "executing" | "reviewing" | "replanning" | "done" | "failed";
 export type ErrorKind = "Unknown" | "Config";
@@ -12,10 +13,6 @@ export type AgentState = {
   projectRoot?: string;
   runtimePaths?: RuntimePaths;
   currentTaskId?: string;
-  flags: {
-    truncation?: "auto" | "disabled";
-    compactionThreshold?: number;
-  };
   status: AgentStatus;
   usedLLM: boolean;
   verifyHistory: unknown[];
@@ -49,6 +46,13 @@ export type AgentState = {
   impl?: unknown;
   delivery?: unknown;
   lastResponseId?: string;
+  lastEvidence?: Evidence;
+  contextHistory: Array<{ turn: number; phase: string; packetRef: string; packetDigest?: string }>;
+  memory?: {
+    decisions: string[];
+    invariants: string[];
+    pitfalls: string[];
+  };
   lastError?: {
     kind: ErrorKind;
     code?: string;

@@ -1,5 +1,7 @@
 import type { LlmPort } from "./llm.js";
 import type { CommandRunnerPort, RuntimePaths } from "./runtime.js";
+import type { Evidence } from "./context.js";
+import type { Workspace } from "./workspace.js";
 
 export type ToolError = {
   code: string;
@@ -26,6 +28,7 @@ export type ToolRunContext = {
     repoRoot?: string;
     specRef?: string;
     runDir?: string;
+    workspace?: Workspace;
     appDir?: string;
     tauriDir?: string;
     runtimePaths?: RuntimePaths;
@@ -37,6 +40,7 @@ export type ToolRunContext = {
       stdout: string;
       stderr: string;
     };
+    verifyEvidence?: Evidence;
     [key: string]: unknown;
   };
 };

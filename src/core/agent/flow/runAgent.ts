@@ -14,6 +14,9 @@ import type { Workspace } from "../../contracts/workspace.js";
 import { noopPlanner } from "../../defaults/noopPlanner.js";
 import { applyMiddlewares } from "../../middleware/applyMiddlewares.js";
 import type { KernelMiddleware } from "../../middleware/types.js";
+import { ContextEngine } from "../../context_engine/ContextEngine.js";
+import { MemoryStore } from "../../memory/MemoryStore.js";
+import { createVerifyRunTool } from "../../tools/verify/runVerifiedCommand.js";
 
 export type CoreRunAgentResult = {
   ok: boolean;
@@ -32,8 +35,6 @@ export type CoreRunRuntime = {
   maxTurns?: number;
   maxToolCallsPerTurn?: number;
   maxPatches?: number;
-  truncation?: "auto" | "disabled";
-  compactionThreshold?: number;
 };
 
 export type CoreRunDeps = {
@@ -60,18 +61,21 @@ export const runCoreAgent = async (args: {
   const maxTurns = runtime.maxTurns ?? 16;
   const maxToolCallsPerTurn = runtime.maxToolCallsPerTurn ?? 4;
   const maxPatches = runtime.maxPatches ?? 8;
-  const truncation = runtime.truncation ?? "auto";
-  const compactionThreshold = runtime.compactionThreshold;
   const onEvent = deps.onEvent ?? deps.humanReview?.onEvent;
+  const memoryStore = await MemoryStore.load(workspace.runDir);
+  const contextEngine = new ContextEngine({
+    memoryQuery: async ({ evidence, taskId, paths }) =>
+      memoryStore.queryRelevant({
+        evidence,
+        task: taskId ? { id: taskId } : undefined,
+        paths
+      })
+  });
 
   const state: AgentState = {
     goal: request.goal,
     specRef: workspace.inputs?.specRef ?? "",
     runDir: workspace.runDir,
-    flags: {
-      truncation,
-      compactionThreshold
-    },
     status: "planning",
     usedLLM: false,
     verifyHistory: [],
@@ -89,7 +93,13 @@ export const runCoreAgent = async (args: {
     touchedFiles: [],
     toolCalls: [],
     toolResults: [],
-    planHistory: []
+    planHistory: [],
+    contextHistory: [],
+    memory: {
+      decisions: [],
+      invariants: [],
+      pitfalls: []
+    }
   };
 
   const ctx: ToolRunContext = {
@@ -121,16 +131,19 @@ export const runCoreAgent = async (args: {
     specRef: workspace.inputs?.specRef,
     runDir: state.runDir,
     providerName: deps.llm.name,
-    model: deps.llm.model,
-    truncation: state.flags.truncation,
-    compactionThreshold: state.flags.compactionThreshold
+    model: deps.llm.model
   });
+
+  const registryWithCoreTools: Record<string, ToolSpec<any>> = {
+    ...deps.registry,
+    verify_run: createVerifyRunTool(state)
+  };
 
   const installed = await applyMiddlewares({
     middlewares: deps.middlewares,
     ctx,
     state,
-    registry: deps.registry,
+    registry: registryWithCoreTools,
     provider: deps.llm,
     hooks: deps.hooks
   });
@@ -152,7 +165,9 @@ export const runCoreAgent = async (args: {
       requestPlanChangeReview: deps.humanReview?.requestPlanChangeReview,
       onEvent,
       runtimePathsResolver,
-      hooks: installed.hooks
+      hooks: installed.hooks,
+      contextEngine,
+      workspace
     });
   } catch (error) {
     runError = error;

@@ -5,6 +5,9 @@ import { nextJsonCounter } from "./audit_counter.js";
 export type AgentTurnAuditEntry = {
   turn: number;
   llmRaw: string;
+  contextPacketRef?: string;
+  contextPacketDigest?: string;
+  evidenceRef?: string;
   llmPreviousResponseId?: string;
   llmResponseId?: string;
   llmUsage?: unknown;
@@ -26,8 +29,6 @@ export class AgentTurnAuditCollector {
     runDir?: string;
     providerName?: string;
     model?: string;
-    truncation?: "auto" | "disabled";
-    compactionThreshold?: number;
   };
 
   constructor(goal: string) {
@@ -58,8 +59,6 @@ export class AgentTurnAuditCollector {
       runDir?: string;
       providerName?: string;
       model?: string;
-      truncation?: "auto" | "disabled";
-      compactionThreshold?: number;
     }
   ): Promise<string> {
     if (startup) {

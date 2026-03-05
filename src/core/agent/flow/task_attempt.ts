@@ -1,27 +1,26 @@
-import type { LlmPort } from "../../contracts/llm.js";
 import type { PlanTask, PlanV1, Planner, ToolCall } from "../../contracts/planning.js";
 import type { AgentPolicy } from "../../contracts/policy.js";
 import type { RuntimePathsResolver } from "../../contracts/runtime.js";
 import type { AgentState } from "../../contracts/state.js";
 import type { ToolRunContext, ToolSpec } from "../../contracts/tools.js";
 import type { KernelHooks } from "../../contracts/hooks.js";
+import type { Workspace } from "../../contracts/workspace.js";
 import type { AgentTurnAuditCollector } from "../telemetry/audit.js";
 import { executeActionPlan } from "../execution/executor.js";
 import { setStateError } from "../execution/errors.js";
 import type { AgentEvent } from "../telemetry/events.js";
 import { recordTaskActionPlan } from "../telemetry/recorder.js";
-import { summarizeState } from "../state/state_summary.js";
 import { gateToolCalls } from "../policy/toolcall_gate.js";
-import { summarizePlan } from "../util/util.js";
 import type { HumanReviewFn } from "../contracts.js";
+import { ContextEngine } from "../../context_engine/ContextEngine.js";
+import { serializeContextPacket } from "../../contracts/context.js";
+import { storeBlob } from "../../utils/blobStore.js";
 
 const PLANNER_OUTPUT_INVALID_RETRY_HINT =
   "PlannerOutputInvalid: toolCalls must be array of {name,input}. input must be a JSON value (not undefined). Fix and return valid tool calls.";
 
 export const runTaskAttempt = async (args: {
   turn: number;
-  goal: string;
-  provider: LlmPort;
   planner: Planner;
   policy: AgentPolicy;
   task: PlanTask;
@@ -36,6 +35,8 @@ export const runTaskAttempt = async (args: {
   hooks?: KernelHooks;
   audit: AgentTurnAuditCollector;
   humanReview?: HumanReviewFn;
+  contextEngine: ContextEngine;
+  workspace: Workspace;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<{
   ok: boolean;
@@ -51,40 +52,47 @@ export const runTaskAttempt = async (args: {
   args.state.runtimePaths = runtimePaths;
   args.state.appDir = runtimePaths.appDir;
 
-  const planSummary = summarizePlan(args.currentPlan);
-  const stateSummary = {
-    ...(summarizeState(args.state) as Record<string, unknown>),
-    currentTask: args.task
-  };
-
   let toolCalls: ToolCall[] = [];
   let plannerRaw = "";
   let plannerResponseId: string | undefined;
   let plannerUsage: unknown;
   let plannerPreviousResponseIdSent: string | undefined;
+  let plannerContextRef: string | undefined;
   const plannerRecentFailures = [...args.recentFailures];
 
   for (let planTry = 1; planTry <= 2; planTry += 1) {
     try {
-      const proposal = args.planner.proposeToolCallsForTask
-        ? await args.planner.proposeToolCallsForTask({
-            goal: args.goal,
-            provider: args.provider,
-            policy: args.policy,
-            task: args.task,
-            planSummary,
-            stateSummary,
-            registry: args.registry,
-            recentFailures: plannerRecentFailures,
-            maxToolCallsPerTurn: args.maxToolCallsPerTurn,
-            previousResponseId: args.state.lastResponseId,
-            truncation: args.state.flags.truncation,
-            contextManagement:
-              typeof args.state.flags.compactionThreshold === "number"
-                ? [{ type: "compaction", compactThreshold: args.state.flags.compactionThreshold }]
-                : undefined
-          })
-        : { toolCalls: [], raw: "planner.proposeToolCallsForTask not implemented" };
+      let proposal: {
+        toolCalls: ToolCall[];
+        raw: string;
+        responseId?: string;
+        usage?: unknown;
+        previousResponseIdSent?: string;
+      };
+      if (args.planner.proposeToolCallsForTask) {
+        const packet = await args.contextEngine.buildContextPacket({
+          phase: "toolcall",
+          turn: args.turn,
+          state: args.state,
+          ctx: args.ctx,
+          registry: args.registry,
+          policy: args.policy,
+          workspace: args.workspace,
+          task: args.task,
+          plan: args.currentPlan,
+          failures: plannerRecentFailures
+        });
+        const serialized = serializeContextPacket(packet);
+        plannerContextRef = storeBlob(args.ctx, serialized, "context");
+        proposal = await args.planner.proposeToolCallsForTask({
+          context: packet,
+          task: args.task,
+          registry: args.registry,
+          policy: args.policy
+        });
+      } else {
+        proposal = { toolCalls: [], raw: "planner.proposeToolCallsForTask not implemented" };
+      }
 
       plannerRaw = proposal.raw;
       plannerResponseId = proposal.responseId;
@@ -158,6 +166,8 @@ export const runTaskAttempt = async (args: {
     turn: args.turn,
     taskId: args.task.id,
     llmRaw: plannerRaw,
+    contextPacketRef: plannerContextRef,
+    evidenceRef: args.state.lastEvidence?.stderrRef ?? args.state.lastEvidence?.stdoutRef,
     previousResponseIdSent: plannerPreviousResponseIdSent,
     responseId: plannerResponseId,
     usage: plannerUsage,

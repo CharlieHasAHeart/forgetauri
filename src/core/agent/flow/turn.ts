@@ -5,6 +5,7 @@ import type { RuntimePathsResolver } from "../../contracts/runtime.js";
 import type { AgentState } from "../../contracts/state.js";
 import type { ToolRunContext, ToolSpec } from "../../contracts/tools.js";
 import type { KernelHooks } from "../../contracts/hooks.js";
+import type { Workspace } from "../../contracts/workspace.js";
 import type { AgentTurnAuditCollector } from "../telemetry/audit.js";
 import { setUsedTurn } from "../runtime/budgets.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "../contracts.js";
@@ -12,6 +13,7 @@ import { setStateError } from "../execution/errors.js";
 import type { AgentEvent } from "../telemetry/events.js";
 import { runTaskWithRetries } from "./task_runner.js";
 import { requiredInput, getNextReadyTask } from "../util/util.js";
+import { ContextEngine } from "../../context_engine/ContextEngine.js";
 
 export const runTurn = async (args: {
   turn: number;
@@ -31,6 +33,8 @@ export const runTurn = async (args: {
   replans: number;
   humanReview?: HumanReviewFn;
   requestPlanChangeReview: PlanChangeReviewFn;
+  contextEngine: ContextEngine;
+  workspace: Workspace;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<{ status: "continue" | "done" | "failed"; replans: number }> => {
   setUsedTurn(args.state, args.turn);
@@ -72,6 +76,8 @@ export const runTurn = async (args: {
     replans: args.replans,
     humanReview: args.humanReview,
     requestPlanChangeReview: args.requestPlanChangeReview,
+    contextEngine: args.contextEngine,
+    workspace: args.workspace,
     onEvent: args.onEvent
   });
 

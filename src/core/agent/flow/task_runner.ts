@@ -5,6 +5,7 @@ import type { RuntimePathsResolver } from "../../contracts/runtime.js";
 import type { AgentState } from "../../contracts/state.js";
 import type { ToolRunContext, ToolSpec } from "../../contracts/tools.js";
 import type { KernelHooks } from "../../contracts/hooks.js";
+import type { Workspace } from "../../contracts/workspace.js";
 import type { AgentTurnAuditCollector } from "../telemetry/audit.js";
 import type { HumanReviewFn, PlanChangeReviewFn } from "../contracts.js";
 import type { AgentEvent } from "../telemetry/events.js";
@@ -12,6 +13,7 @@ import { handleReplan } from "./replanner.js";
 import { runTaskAttempt } from "./task_attempt.js";
 import { classifyFailure } from "../execution/failures.js";
 import { setStateError } from "../execution/errors.js";
+import { ContextEngine } from "../../context_engine/ContextEngine.js";
 
 export const runTaskWithRetries = async (args: {
   turn: number;
@@ -31,6 +33,8 @@ export const runTaskWithRetries = async (args: {
   replans: number;
   humanReview?: HumanReviewFn;
   requestPlanChangeReview: PlanChangeReviewFn;
+  contextEngine: ContextEngine;
+  workspace: Workspace;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<{ ok: boolean; replans: number }> => {
   const isFailed = (): boolean => args.state.status === "failed";
@@ -48,8 +52,6 @@ export const runTaskWithRetries = async (args: {
     const recentFailures = args.taskFailures.get(args.task.id) ?? [];
     const attemptResult = await runTaskAttempt({
       turn: args.turn,
-      goal: args.state.goal,
-      provider: args.provider,
       planner: args.planner,
       policy: args.policy,
       task: args.task,
@@ -64,6 +66,8 @@ export const runTaskWithRetries = async (args: {
       hooks: args.hooks,
       audit: args.audit,
       humanReview: args.humanReview,
+      contextEngine: args.contextEngine,
+      workspace: args.workspace,
       onEvent: args.onEvent
     });
 
@@ -101,6 +105,10 @@ export const runTaskWithRetries = async (args: {
         planner: args.planner,
         state: args.state,
         policy: args.policy,
+        ctx: args.ctx,
+        registry: args.registry,
+        workspace: args.workspace,
+        contextEngine: args.contextEngine,
         failedTaskId: args.task.id,
         failures: attemptResult.failures,
         replans,

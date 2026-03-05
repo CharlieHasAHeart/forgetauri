@@ -5,7 +5,7 @@ export const noopPlanner: Planner = {
     return {
       plan: {
         version: "v1",
-        goal: args.goal,
+        goal: args.context.runGoal,
         tasks: []
       },
       raw: "noopPlanner: empty plan"
