@@ -8,6 +8,7 @@ This is the quick map of the current plan-first core runtime.
 - Responsibilities:
   - build initial `AgentState`
   - build `ToolRunContext` (`ctx.memory` as shared runtime memory)
+  - inject `workspace` into `ctx.memory` (with `repoRoot`/`runDir`/`specRef` aliases)
   - install middleware (`KernelMiddleware`)
   - call orchestrator loop
   - flush audit
@@ -20,6 +21,8 @@ This is the quick map of the current plan-first core runtime.
   - choose next task and run retries
 - `src/core/agent/flow/task_runner.ts`
   - per-task retry and replan boundary
+- `src/core/agent/flow/replanner.ts`
+  - deterministic plan patch request and gate
 - `src/core/agent/flow/task_attempt.ts`
   - propose tool calls for one attempt
   - execute action plan
@@ -67,3 +70,4 @@ This is the quick map of the current plan-first core runtime.
 3. If a task fails repeatedly, inspect:
    - state summary (`src/core/agent/state/state_summary.ts`)
    - planner output validity and criteria failures in audit turns.
+4. Use `runCoreAgent` as the core entrypoint (no legacy flat `runAgent` wrapper in core).
