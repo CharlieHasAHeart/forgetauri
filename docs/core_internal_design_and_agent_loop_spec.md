@@ -1,948 +1,197 @@
-# Core Internal Design and Agent Loop Specification
+# Core 内部设计与 Agent Loop 规范
 
-**Document ID**: AGENT-ARCH-CORE-003  
-**Title**: Core Internal Design and Agent Loop Specification  
-**Version**: 1.0.0  
-**Status**: Draft  
-**Audience**: Architects, engineers, reviewers, code generation tools  
-**Language**: Chinese  
-**Last Updated**: 2026-03-06
-
----
-
-## 1. Purpose
-
-This document defines the internal design of the Core and the implementation model of the Agent Loop.
-
-Its purpose is to specify:
-
-1. the Core internal decomposition;
-2. the Core runtime object model;
-3. the state machine model of the agent loop;
-4. the lifecycle of run, milestone, task, and action;
-5. verification, repair, and replan semantics inside the Core;
-6. the contract by which the Core emits effect requests and consumes effect results.
-
-This document is normative unless otherwise stated.
+**文档 ID**: AGENT-ARCH-CORE-003  
+**标题**: Core 内部设计与 Agent Loop 规范  
+**版本**: 1.1.0  
+**状态**: Draft  
+**受众**: 架构师、工程师、评审者、代码生成工具  
+**语言**: 中文  
+**更新时间**: 2026-03-06
 
 ---
 
-## 2. Scope
+## 1. 目的
 
-This document covers the **Core only**.
+本文定义 Core 的内部职责边界与 Agent Loop 的运行语义，重点回答：
 
-It includes:
-
-- Core internal responsibilities;
-- Core-owned data models;
-- state machine model;
-- scheduling and dispatch semantics;
-- task lifecycle;
-- verification model;
-- repair and replan semantics;
-- event and audit points owned by the Core.
-
-It does **not** define:
-
-- Shell internal implementation;
-- provider-specific message formats;
-- tool or sandbox implementations;
-- profile-specific capability catalogs;
-- prompt wording or LLM-specific behavior.
+1. Core 内部由哪些模块组成；
+2. 运行状态如何迁移；
+3. Task / Milestone / Goal 的验收顺序是什么；
+4. 失败后如何进入 retry / repair / replan；
+5. Core 与外部效应层如何交互。
 
 ---
 
-## 3. Conformance Language
+## 2. Core 设计原则
 
-The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** in this document indicate requirement levels.
-
-- **MUST / MUST NOT**: mandatory requirement.
-- **SHOULD / SHOULD NOT**: recommended requirement; deviations require justification.
-- **MAY**: optional behavior.
-
----
-
-## 4. Core Design Goals
-
-The Core is designed to satisfy the following goals:
-
-1. **Semantic closure**: all runtime meaning is defined inside the Core.
-2. **Deterministic control**: the Core decides lifecycle transitions deterministically from normalized inputs.
-3. **Boundary stability**: provider and tool changes do not require redefining Core semantics.
-4. **Recoverability**: failures can be classified and routed to retry, repair, or replan.
-5. **Auditability**: major transitions and semantic decisions can be recorded.
-6. **Implementation clarity**: scheduling, verification, and recovery are explicit modules rather than implicit prompt behavior.
+1. **封闭语义**：Core 决定语义，外部能力只提供结果。  
+2. **确定性控制**：状态迁移由规则驱动，不靠隐式 prompt 推断。  
+3. **可恢复**：失败可分类并进入明确恢复路径。  
+4. **可审计**：关键决策节点可回放（context/evidence/turn 记录）。
 
 ---
 
-## 5. Core Non-Goals
+## 3. Core 内部模块
 
-The Core does **not** attempt to:
+### 3.1 Flow
 
-- manage provider-native message protocols;
-- execute tools or commands directly;
-- own sandbox execution;
-- host capability middleware;
-- store prompt templates;
-- implement scenario-specific profile rules directly.
+- `runCoreAgent`：初始化运行环境与依赖。  
+- `runPlanFirstAgent`：主循环编排。  
+- `runTurn`：选择当前可执行任务。  
+- `runTaskWithRetries`：任务重试控制。  
+- `runTaskAttempt`：单次任务尝试。  
+- `handleReplan`：计划补丁与重规划。
 
----
+### 3.2 Execution
 
-## 6. Core Architectural Model
+- `executeToolCall`：单工具执行与 hook 拦截。  
+- `executeActionPlan`：一组工具调用执行。  
+- `evaluateCriteriaSet`：通用验收标准判定。  
+- `errors/failures`：错误标准化与失败分类。
 
-### 6.1 Core Nature
+### 3.3 Context
 
-The Core is a **closed semantic state machine**.
+- `ContextEngine`：构建给 Planner 的统一上下文包。  
+- 上下文包含：目标、快照、证据、相关代码、变更摘要、记忆、下一步请求。
 
-### 6.2 Core Execution Model
+### 3.4 Policy & Gate
 
-The Core operates as a transition engine over:
-
-- current state;
-- normalized input results from the Shell;
-- internal deterministic decision rules.
-
-### 6.3 Core Interface Model
-
-The Core has two outputs:
-
-1. updated Core state;
-2. an optional next Effect Request.
-
-The Core has one input category:
-
-- a normalized Effect Result.
-
-### 6.4 Core Invariant
-
-The Core MUST remain valid if every LLM, tool, sandbox, or external handler is replaced, as long as the request/result contracts are preserved.
+- allowed tools / allowed commands 约束。  
+- tool call 数量与 action budget 约束。  
+- plan change gate 与人工审核解释流程。
 
 ---
 
-## 7. Core Internal Decomposition
+## 4. 关键数据模型
 
-The Core SHOULD be decomposed into the following modules.
+### 4.1 PlanV2
 
-### 7.1 State Store
+- `goal`：全局目标。  
+- `milestones[]`：里程碑集合。  
+- `goal_acceptance[]`：全局联调验收标准。
 
-Owns the in-memory semantic snapshot of the run.
+### 4.2 Milestone
 
-### 7.2 Transition Engine
+- `tasks[]`：本里程碑任务集合。  
+- `acceptance[]`：里程碑完成门禁。
 
-Applies state transitions in response to effect results and internal control logic.
+### 4.3 PlanTask
 
-### 7.3 Planner State Logic
+- `dependencies[]`：依赖任务 ID。  
+- `success_criteria[]`：任务级成功标准。
 
-Owns plan attachment, plan versioning, and plan patch semantics.
+### 4.4 AgentState（与本主题相关）
 
-### 7.4 Dispatcher
-
-Selects the next ready task deterministically.
-
-### 7.5 Task Lifecycle Manager
-
-Owns task state changes, attempt counters, retry eligibility, and completion marking.
-
-### 7.6 Verification Engine
-
-Applies success criteria at task, milestone, and goal levels.
-
-### 7.7 Failure Classifier
-
-Maps normalized failure evidence to Core-level failure classes and signals.
-
-### 7.8 Recovery Controller
-
-Chooses between retry, repair, replan, and failure escalation.
-
-### 7.9 Event Emitter
-
-Emits semantic lifecycle events.
-
-### 7.10 Audit Hooks
-
-Records references to contexts, results, failures, and state snapshots for replay.
+- `status`：planning/executing/reviewing/replanning/done/failed。  
+- `activeMilestoneId`：当前里程碑。  
+- `completedTasks[]`：已完成任务。  
+- `milestoneReviewHistory[]`：里程碑验收历史。  
+- `goalReviewHistory[]`：全局验收历史。
 
 ---
 
-## 8. Core Data Model
+## 5. Agent Loop（规范执行顺序）
 
-### 8.1 RunStatus
+### 5.1 初始计划阶段
 
-```ts
-type RunStatus =
-  | "planning"
-  | "dispatching"
-  | "executing"
-  | "verifying"
-  | "repairing"
-  | "done"
-  | "failed"
-```
+1. 构建 planning context packet。  
+2. Planner 产出 `PlanV2`。  
+3. 计划进入 state，开始 milestone 循环。
 
-#### Rules
+### 5.2 里程碑执行阶段
 
-- `done` MUST represent successful completion of the entire run only.
-- `failed` MUST represent terminal inability to continue successfully.
-- no local lifecycle stage may reuse `done` as a partial completion marker.
+对每个 milestone：
 
----
+1. 设置 `activeMilestoneId`。  
+2. 持续选择并执行该 milestone 内可执行 task，直到任务全部完成。  
+3. 执行 milestone acceptance review（`evaluateCriteriaSet`）。
 
-### 8.2 TaskStatus
+### 5.3 里程碑修复阶段（Milestone Repair）
 
-```ts
-type TaskStatus =
-  | "pending"
-  | "ready"
-  | "executing"
-  | "succeeded"
-  | "failed"
-  | "blocked"
-```
+若 milestone review 失败：
 
-#### Rules
+1. 进入 replan，目标是修复当前 milestone。  
+2. 将补救 patch 应用到当前计划（通常是追加/更新任务）。  
+3. 返回当前 milestone 继续执行，直到 review 通过或预算耗尽。
 
-- TaskStatus is local to task lifecycle reasoning.
-- RunStatus and TaskStatus MUST remain distinct.
+### 5.4 全局联调阶段（Integration Review）
+
+当所有 milestone 通过后：
+
+1. 执行 `goal_acceptance` review。  
+2. 若通过：状态进入 `done`。  
+3. 若失败：进入 integration repair。
+
+### 5.5 全局修复阶段（Integration Repair）
+
+1. 触发 replan 生成全局补救计划。  
+2. 补救任务执行完后再次进行 goal review。  
+3. 达到 replan 预算上限则 `failed`。
 
 ---
 
-### 8.3 Plan
+## 6. Tool 执行与 Hook 语义
 
-```ts
-type Plan = {
-  version: number
-  milestones: Milestone[]
-  goalAcceptance: SuccessCriterion[]
-}
-```
+`onBeforeToolCall` 决策：
 
----
+- `allow`：继续执行；
+- `deny`：拒绝执行并记错误；
+- `override_call`：替换 call 后重新走 policy/schema；
+- `override_result`：跳过实际执行，直接消费结果。
 
-### 8.4 Milestone
-
-```ts
-type Milestone = {
-  id: string
-  title: string
-  tasks: Task[]
-  acceptance: SuccessCriterion[]
-}
-```
+`onToolResult` 与 `onPatchPathsChanged` 用于后处理与观测，不改变核心状态机定义。
 
 ---
 
-### 8.5 Task
+## 7. 验收标准执行器（Criteria Engine）
 
-```ts
-type Task = {
-  id: string
-  title: string
-  dependencies: string[]
-  successCriteria: SuccessCriterion[]
-}
-```
+`evaluateCriteriaSet` 支持：
 
----
+- `tool_result`
+- `file_exists`
+- `file_contains`
+- `command`
 
-### 8.6 Action
+要求：
 
-```ts
-type Action = {
-  id: string
-  kind: string
-  input: unknown
-}
-```
-
-#### Rules
-
-- Action is a normalized runtime abstraction.
-- Action MUST NOT encode provider-native tool-calling structures.
+1. `command` 必须经过 allowed commands gate。  
+2. 失败返回结构化 `failures[]`，且附可定位 note。  
+3. Task、Milestone、Goal 三层都复用同一执行器。
 
 ---
 
-### 8.7 Evidence
+## 8. 失败与终止规则
 
-```ts
-type Evidence = {
-  id: string
-  kind: string
-  ref?: string
-  data?: unknown
-  summary?: string
-}
-```
+以下情况会进入 `failed`：
+
+1. 无可执行任务且并非已完成状态；
+2. 运行超过 max turns；
+3. replan 预算耗尽；
+4. milestone/goal review 长期失败且无法生成有效补救；
+5. policy gate 明确拒绝关键动作。
 
 ---
 
-### 8.8 AgentError
+## 9. 审计与回放要求
 
-```ts
-type AgentError = {
-  kind: string
-  message: string
-  code?: string
-}
-```
+每轮至少应记录：
 
----
+- context packet ref；
+- planner raw 输出；
+- tool calls 与 tool results；
+- evidence ref（如 stdout/stderr blob ref）；
+- review 结果（milestone / goal）。
 
-### 8.9 FailureSignal
-
-```ts
-type FailureSignal = {
-  class: "system" | "task"
-  kind: string
-  message: string
-  fingerprint: string
-}
-```
+目标：可还原“为何某个任务、里程碑、全局验收通过或失败”。
 
 ---
 
-### 8.10 AgentState
+## 10. 实施边界
 
-```ts
-type AgentState = {
-  goal: string
-  status: RunStatus
+本文仅定义 Core 语义，不约束：
 
-  plan?: Plan
-  planVersion?: number
+- 具体 provider 接入；
+- 具体工具实现细节；
+- profile 的业务策略与工具组合；
+- 前端界面的人审交互形态。
 
-  activeMilestoneId?: string
-  currentTaskId?: string
-
-  completedTaskIds: string[]
-  taskAttempts: Record<string, number>
-
-  toolLikeActions?: Action[]
-  actionResults?: ActionResult[]
-
-  latestEvidenceIds: string[]
-  evidenceRefs: string[]
-
-  lastError?: AgentError
-  lastFailure?: FailureSignal
-  lastResponseId?: string
-
-  budgets: Budgets
-}
-```
-
-#### Rules
-
-- `completedTaskIds` MUST be the single source of truth for completed tasks.
-- `currentTaskId` MUST identify at most one active task at any moment.
-- `plan` and `planVersion` MUST be updated atomically.
-
----
-
-### 8.11 Budgets
-
-```ts
-type Budgets = {
-  maxTurns: number
-  usedTurns: number
-  maxRetriesPerTask: number
-  maxReplans: number
-  usedReplans: number
-}
-```
-
----
-
-## 9. Core Request/Result Model
-
-### 9.1 EffectRequest
-
-Illustrative shape:
-
-```ts
-type EffectRequest =
-  | { type: "propose_plan"; goal: string; context: CoreContext }
-  | { type: "propose_actions"; taskId: string; context: CoreContext }
-  | { type: "execute_actions"; taskId: string; actions: Action[] }
-  | { type: "request_review"; review: ReviewRequest }
-  | { type: "repair_plan"; reason: FailureSignal; context: CoreContext }
-```
-
-### 9.2 EffectResult
-
-Illustrative shape:
-
-```ts
-type EffectResult =
-  | { type: "plan_proposed"; plan: Plan }
-  | { type: "actions_proposed"; taskId: string; actions: Action[] }
-  | { type: "actions_executed"; taskId: string; results: ActionResult[]; evidence: Evidence[] }
-  | { type: "review_received"; review: ReviewResult }
-  | { type: "repair_applied"; patch: PlanPatch }
-  | { type: "effect_failed"; error: AgentError }
-```
-
-### 9.3 Core Rule
-
-The Core MUST only consume normalized EffectResult values.  
-It MUST NOT consume provider-native messages, raw tool-calling objects, or sandbox-native execution records directly.
-
----
-
-## 10. Agent Loop Model
-
-### 10.1 Canonical Loop
-
-The canonical loop implemented by the Core is:
-
-**Plan -> Dispatch -> Execute -> Verify -> Repair**
-
-### 10.2 Loop Semantics
-
-- **Plan**: obtain or update a structured plan.
-- **Dispatch**: choose the next executable task.
-- **Execute**: request and execute normalized actions for a task.
-- **Verify**: evaluate task, milestone, and goal criteria.
-- **Repair**: recover locally or replan when needed.
-
-### 10.3 Control Ownership
-
-The Core owns:
-
-- whether planning is needed;
-- whether a task is ready;
-- whether a result counts as success or failure;
-- whether retry, repair, or replan should occur;
-- whether the run is done or failed.
-
----
-
-## 11. Run Lifecycle
-
-### 11.1 Initial State
-
-A run begins with:
-
-- a goal;
-- an empty or uninitialized plan;
-- zero completed tasks;
-- status = `planning`.
-
-### 11.2 Terminal States
-
-A run terminates in one of:
-
-- `done`
-- `failed`
-
-### 11.3 Run-Level Pseudocode
-
-```ts
-function coreStep(state: AgentState, input?: EffectResult): CoreStepOutput {
-  const nextState = transitionEngine.apply(state, input)
-
-  if (nextState.status === "done" || nextState.status === "failed") {
-    return { state: nextState }
-  }
-
-  const request = decideNextEffect(nextState)
-  return { state: nextState, request }
-}
-```
-
-### 11.4 Run-Level Decision Order
-
-The Core SHOULD evaluate next-step needs in the following order:
-
-1. no plan available -> request plan;
-2. plan exists but no ready task and milestone not accepted -> verify or repair;
-3. ready task exists and no pending action proposal -> request actions;
-4. action proposal available but not executed -> request execution;
-5. execution completed -> verify task;
-6. all milestones passed and goal acceptance passed -> done;
-7. unrecoverable condition -> failed.
-
----
-
-## 12. Milestone Model
-
-### 12.1 Milestone Role
-
-Milestones define phase-level grouping and phase-level acceptance.
-
-### 12.2 Milestone Activation
-
-At any point in time, the Core SHOULD track at most one active milestone identifier for sequential milestone execution.
-
-### 12.3 Milestone Completion
-
-A milestone is not considered complete merely because all its tasks were attempted.
-
-A milestone is complete only when:
-
-1. all relevant tasks are completed; and
-2. milestone acceptance passes.
-
-### 12.4 Rule
-
-Milestone completion MUST NOT directly set RunStatus to `done`.
-
----
-
-## 13. Task Dispatch Model
-
-### 13.1 Dispatcher Role
-
-The Dispatcher selects the next ready task using deterministic logic.
-
-### 13.2 Ready Task Definition
-
-A task is considered ready when:
-
-1. it belongs to the active milestone;
-2. it is not already completed;
-3. all dependencies are completed.
-
-### 13.3 Blocked Condition
-
-A milestone is blocked when:
-
-- tasks remain incomplete;
-- no incomplete task is ready.
-
-### 13.4 Dispatcher Output
-
-The Dispatcher MUST return one of:
-
-- a ready task;
-- no task because milestone task set is exhausted;
-- blocked state.
-
-### 13.5 Rule
-
-Task dispatch MUST NOT rely on the LLM.
-
----
-
-## 14. Task Lifecycle Model
-
-### 14.1 Lifecycle Stages
-
-```text
-pending -> ready -> executing -> succeeded
-                     |             ^
-                     v             |
-                   failed ---------
-                     |
-                     v
-                   blocked
-```
-
-### 14.2 Task Start
-
-When a task is selected, the Core MUST:
-
-- set `currentTaskId`;
-- increment or initialize its attempt state as needed;
-- set run status to `executing`.
-
-### 14.3 Task Success
-
-A task is successful only when task-level verification passes.
-
-### 14.4 Task Failure
-
-A task failure does not automatically imply run failure.
-
-Task failure MUST first be classified.
-
-### 14.5 Task Completion Recording
-
-On success, the Core MUST:
-
-- add task id to `completedTaskIds`;
-- clear or update current task context appropriately.
-
----
-
-## 15. Task Attempt Model
-
-### 15.1 Attempt Definition
-
-A task attempt is one complete cycle of:
-
-1. request action proposal;
-2. receive proposed actions;
-3. request action execution;
-4. receive execution results and evidence;
-5. verify task success criteria.
-
-### 15.2 Attempt Boundaries
-
-The Core MUST treat one proposal-execution-verification chain as one attempt.
-
-### 15.3 Attempt Count
-
-The Core MUST maintain per-task attempt counts.
-
-### 15.4 Attempt Output
-
-An attempt produces one of:
-
-- success;
-- task failure;
-- system failure.
-
----
-
-## 16. Verification Model
-
-### 16.1 Verification Layers
-
-The Core MUST apply verification at three levels:
-
-1. Task Verification
-2. Milestone Acceptance
-3. Goal Acceptance
-
-### 16.2 Separation Rule
-
-These three verification levels MUST remain distinct.
-
-No single verification result MUST be overloaded to mean all three.
-
-### 16.3 Verification Inputs
-
-Verification SHOULD use:
-
-- action results;
-- evidence;
-- state;
-- structured success criteria.
-
-### 16.4 Verification Output
-
-Verification MUST produce:
-
-- `ok: boolean`
-- failure list where applicable
-
-### 16.5 Rule
-
-The Core MUST decide semantic success from verification outputs.  
-The Shell may help gather evidence, but MUST NOT define semantic success.
-
----
-
-## 17. Failure Classification Model
-
-### 17.1 Purpose
-
-Failure classification exists to separate semantic task incompletion from runtime/system faults.
-
-### 17.2 Minimum Classes
-
-The Core MUST support at least:
-
-- `system`
-- `task`
-
-### 17.3 System Failure
-
-System failure indicates the machinery or contract is broken.
-
-Examples:
-- invalid normalized result;
-- impossible state;
-- missing active plan when plan is required;
-- invalid plan patch;
-- invariant violation.
-
-### 17.4 Task Failure
-
-Task failure indicates the machinery worked, but the task did not achieve its criteria.
-
-Examples:
-- expected file missing;
-- command verification failed;
-- content requirement not met.
-
-### 17.5 Rule
-
-Recovery decisions MUST depend on structured FailureSignal, not only on raw messages.
-
----
-
-## 18. Recovery Model
-
-### 18.1 Recovery Priority
-
-The Core MUST prioritize recovery in the following order:
-
-1. Retry
-2. Repair
-3. Replan
-4. Fail
-
-### 18.2 Retry
-
-Retry SHOULD be used when:
-
-- the failure is task-class;
-- retry budget for the task remains;
-- there is no invariant violation.
-
-### 18.3 Repair
-
-Repair SHOULD be used when:
-
-- more evidence or a corrective local action may recover the task;
-- the current plan is still structurally valid.
-
-### 18.4 Replan
-
-Replan SHOULD be used when:
-
-- the plan lacks necessary tasks;
-- milestone or goal acceptance cannot pass under the current structure;
-- local repair is insufficient.
-
-### 18.5 Terminal Failure
-
-The Core MUST fail the run when:
-
-- a system failure is unrecoverable;
-- retry and repair are exhausted and replan is unavailable or invalid;
-- replan budget is exhausted;
-- a Core invariant is violated.
-
----
-
-## 19. Plan Patch and Replan Semantics
-
-### 19.1 Preferred Model
-
-The Core SHOULD use **plan patch** semantics rather than full plan replacement.
-
-### 19.2 Supported Patch Semantics
-
-Recommended patch operations include:
-
-- milestone add
-- task add
-- task remove
-- task update
-- task reorder
-
-### 19.3 Replan Consistency Checks
-
-After a patch is applied, the Core MUST verify:
-
-1. `completedTaskIds` only contains tasks that still exist;
-2. removed tasks are removed from completion state;
-3. `activeMilestoneId` is still valid;
-4. `currentTaskId` is still valid or is cleared;
-5. plan version is incremented.
-
-### 19.4 Invalid Replan
-
-If any consistency check fails, the Core MUST treat the result as a system failure.
-
----
-
-## 20. Core Transition Rules
-
-### 20.1 Planning Transitions
-
-- no plan available -> emit `propose_plan`
-- valid plan received -> attach plan and move to dispatching
-
-### 20.2 Dispatching Transitions
-
-- ready task found -> move to executing path
-- no ready task but milestone incomplete -> blocked/repair path
-- no ready task and all milestones accepted -> goal verification path
-
-### 20.3 Executing Transitions
-
-- no action proposal available -> emit `propose_actions`
-- actions proposed -> emit `execute_actions`
-- actions executed -> move to verifying
-
-### 20.4 Verifying Transitions
-
-- task verification passes -> mark task complete and return to dispatching
-- task verification fails -> classify failure and route to recovery
-- milestone acceptance fails -> route to repair/replan
-- goal acceptance passes -> done
-- goal acceptance fails -> repair/replan or failed
-
-### 20.5 Repairing Transitions
-
-- retry allowed -> return to executing flow
-- repair applied -> return to dispatching or executing as appropriate
-- valid plan patch applied -> return to dispatching
-- repair unavailable -> failed
-
----
-
-## 21. Core Event Model
-
-The Core SHOULD emit semantic events at major lifecycle points.
-
-### 21.1 Recommended Events
-
-```ts
-type CoreEvent =
-  | { type: "plan_attached"; version: number }
-  | { type: "task_selected"; taskId: string }
-  | { type: "task_succeeded"; taskId: string }
-  | { type: "task_failed"; taskId: string; failure: FailureSignal }
-  | { type: "milestone_verified"; milestoneId: string; ok: boolean }
-  | { type: "goal_verified"; ok: boolean }
-  | { type: "retry_scheduled"; taskId: string }
-  | { type: "repair_requested"; reason: FailureSignal }
-  | { type: "replan_requested"; reason: FailureSignal }
-  | { type: "replan_applied"; newVersion: number }
-  | { type: "done" }
-  | { type: "failed"; error: AgentError }
-```
-
-### 21.2 Event Rule
-
-Events MUST reflect semantic changes, not provider-native transport details.
-
----
-
-## 22. Core Audit Points
-
-The Core SHOULD record references for:
-
-- plan versions;
-- selected task identifiers;
-- verification results;
-- failure signals;
-- repair and replan decisions;
-- final terminal reason.
-
-The Core MAY rely on the Shell to persist referenced artifacts, but Core-owned semantic decisions MUST remain traceable.
-
----
-
-## 23. Reference Pseudocode
-
-### 23.1 Core Step Function
-
-```ts
-function step(state: AgentState, input?: EffectResult): CoreStepOutput {
-  const s1 = applyInput(state, input)
-
-  if (isTerminal(s1)) {
-    return { state: s1 }
-  }
-
-  const semanticDecision = decideNextSemanticMove(s1)
-
-  switch (semanticDecision.type) {
-    case "need_plan":
-      return { state: s1, request: buildPlanRequest(s1) }
-
-    case "need_actions":
-      return { state: s1, request: buildActionProposalRequest(s1) }
-
-    case "need_execution":
-      return { state: s1, request: buildActionExecutionRequest(s1) }
-
-    case "need_repair":
-      return { state: s1, request: buildRepairRequest(s1) }
-
-    case "done":
-      return { state: { ...s1, status: "done" } }
-
-    case "failed":
-      return { state: { ...s1, status: "failed", lastError: semanticDecision.error } }
-  }
-}
-```
-
-### 23.2 Apply Input
-
-```ts
-function applyInput(state: AgentState, input?: EffectResult): AgentState {
-  if (!input) return state
-
-  switch (input.type) {
-    case "plan_proposed":
-      return attachPlan(state, input.plan)
-
-    case "actions_proposed":
-      return attachProposedActions(state, input.taskId, input.actions)
-
-    case "actions_executed":
-      return attachExecutionResults(state, input.taskId, input.results, input.evidence)
-
-    case "repair_applied":
-      return applyPlanPatch(state, input.patch)
-
-    case "effect_failed":
-      return attachEffectError(state, input.error)
-
-    default:
-      return state
-  }
-}
-```
-
-These pseudocode blocks are illustrative and do not replace the normative rules above.
-
----
-
-## 24. Implementation Constraints
-
-### 24.1 Core MUST NOT
-
-- import provider-native message types into Core semantics;
-- rely on tool names as semantic control signals unless normalized as Actions;
-- allow middleware to alter transitions;
-- store profile-specific runtime semantics.
-
-### 24.2 Core SHOULD
-
-- normalize all external inputs at the boundary;
-- keep lifecycle phases explicit;
-- keep verification deterministic where possible;
-- prefer plan patch to plan replacement;
-- keep task completion as a single-source-of-truth structure.
-
-### 24.3 Core MAY
-
-- expose a reducer-style API;
-- expose an event log for replay;
-- separate pure transition logic from mutable state containers.
-
----
-
-## 25. Summary
-
-This document defines the Core as a closed semantic state machine implementing a structured agent loop:
-
-**Plan -> Dispatch -> Execute -> Verify -> Repair**
-
-The Core owns:
-
-- runtime semantics;
-- task scheduling semantics;
-- verification semantics;
-- failure classification semantics;
-- repair and replan semantics;
-- terminal state semantics.
-
-The Core does **not** own:
-
-- provider message protocols;
-- direct tool execution;
-- sandbox operations;
-- middleware execution;
-- profile-specific runtime behavior.
-
-All subsequent implementation work on the Core MUST preserve the state machine and boundary rules defined in this specification.
