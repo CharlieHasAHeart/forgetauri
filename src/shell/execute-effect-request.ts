@@ -26,11 +26,7 @@ export function buildUnsupportedEffectResult(request: EffectRequest): EffectResu
 
 export function buildExecuteActionsEffectResult(request: EffectRequest): EffectResult {
   const actions = extractActionsFromEffectRequest(request);
-
-  return (
-    buildEffectResultFromActions(request, actions) ??
-    buildUnsupportedEffectResult(request)
-  );
+  return buildEffectResultFromActions(request, actions) ?? buildUnsupportedEffectResult(request);
 }
 
 export function buildRunReviewEffectResult(request: EffectRequest): EffectResult {
