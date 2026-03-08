@@ -5,9 +5,10 @@ import {
   type EffectResult
 } from "../protocol/index.js";
 import {
-  buildEffectResultFromActions,
+  buildEffectResultFromActionResults,
   buildEffectResultFromSingleAction
 } from "./build-effect-result-from-actions.js";
+import { executeActions } from "./action-executor.js";
 import { extractActionsFromEffectRequest } from "./extract-actions-from-effect-request.js";
 
 export function buildUnsupportedEffectResult(request: EffectRequest): EffectResult {
@@ -26,7 +27,9 @@ export function buildUnsupportedEffectResult(request: EffectRequest): EffectResu
 
 export function buildExecuteActionsEffectResult(request: EffectRequest): EffectResult {
   const actions = extractActionsFromEffectRequest(request);
-  return buildEffectResultFromActions(request, actions) ?? buildUnsupportedEffectResult(request);
+  const results = executeActions(actions);
+
+  return buildEffectResultFromActionResults(request, results);
 }
 
 export function buildRunReviewEffectResult(request: EffectRequest): EffectResult {
