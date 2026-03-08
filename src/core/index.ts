@@ -9,3 +9,4 @@ export * from "./build-effect-request.js";
 export * from "./apply-effect-result.js";
 export * from "./run-effect-cycle.js";
 export * from "./run-runtime-tick.js";
+export * from "./can-run-runtime-step.js";

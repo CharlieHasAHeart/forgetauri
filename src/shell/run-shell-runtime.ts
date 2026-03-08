@@ -6,7 +6,7 @@ import {
   type Task
 } from "../protocol/index.js";
 import {
-  canRunRuntimeTick,
+  canRunRuntimeStep,
   runRuntimeTick,
   type RuntimeTickOutput
 } from "../core/index.js";
@@ -51,7 +51,7 @@ export function canRunShellRuntimeStep(
   tasks: Task[],
   incomingResult: EffectResult | undefined
 ): boolean {
-  return canRunRuntimeTick(state, plan, tasks, incomingResult);
+  return canRunRuntimeStep(state, plan, tasks, incomingResult);
 }
 
 export function runShellRuntimeOnce(
