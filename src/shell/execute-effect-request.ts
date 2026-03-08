@@ -1,7 +1,6 @@
 import {
   isEffectRequest,
   isEffectRequestKind,
-  type Action,
   type EffectRequest,
   type EffectResult
 } from "../protocol/index.js";
@@ -9,6 +8,7 @@ import {
   buildEffectResultFromActions,
   buildEffectResultFromSingleAction
 } from "./build-effect-result-from-actions.js";
+import { extractActionsFromEffectRequest } from "./extract-actions-from-effect-request.js";
 
 export function buildUnsupportedEffectResult(request: EffectRequest): EffectResult {
   return {
@@ -25,7 +25,7 @@ export function buildUnsupportedEffectResult(request: EffectRequest): EffectResu
 }
 
 export function buildExecuteActionsEffectResult(request: EffectRequest): EffectResult {
-  const actions: Action[] = [];
+  const actions = extractActionsFromEffectRequest(request);
 
   return (
     buildEffectResultFromActions(request, actions) ??
