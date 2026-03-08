@@ -67,7 +67,7 @@ describe("executeEffectRequest", () => {
     expect(results).toEqual([buildActionResult({ kind: "tool", name: "run_tests" })]);
   });
 
-  it("does not route non-execute_actions request to action path", () => {
+  it("returns normalized review_result for valid run_review request", () => {
     const request: EffectRequest = {
       kind: "run_review",
       payload: {}
@@ -76,8 +76,53 @@ describe("executeEffectRequest", () => {
     const result = executeEffectRequest(request);
 
     expect(result).toBeDefined();
+    expect(isEffectResult(result)).toBe(true);
     expect(result?.kind).toBe("review_result");
     expect(result?.success).toBe(true);
+    expect(result?.payload).toEqual({
+      accepted: true,
+      requestKind: "run_review"
+    });
+    expect(result?.context).toEqual({ handled: true });
+  });
+
+  it("keeps run_review behavior stable when payload contains extra fields", () => {
+    const request: EffectRequest = {
+      kind: "run_review",
+      payload: {
+        criteria: { level: "strict" },
+        notes: "extra input should not change minimal review path"
+      }
+    };
+
+    const result = executeEffectRequest(request);
+
+    expect(result).toBeDefined();
+    expect(result?.kind).toBe("review_result");
+    expect(result?.success).toBe(true);
+    expect(result?.payload).toEqual({
+      accepted: true,
+      requestKind: "run_review"
+    });
+    expect(result?.context).toEqual({ handled: true });
+  });
+
+  it("does not route run_review request to execute_actions aggregation shape", () => {
+    const request: EffectRequest = {
+      kind: "run_review",
+      payload: {
+        actions: [{ kind: "tool", name: "should_not_be_used" }]
+      }
+    };
+
+    const result = executeEffectRequest(request);
+
+    expect(result).toBeDefined();
+    expect(result?.kind).toBe("review_result");
+    expect(result?.payload).not.toMatchObject({
+      count: expect.any(Number),
+      results: expect.any(Array)
+    });
     expect(result?.context).toEqual({ handled: true });
   });
 
