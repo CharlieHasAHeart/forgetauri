@@ -1,9 +1,14 @@
 import {
   isEffectRequest,
   isEffectRequestKind,
+  type Action,
   type EffectRequest,
   type EffectResult
 } from "../protocol/index.js";
+import {
+  buildEffectResultFromActions,
+  buildEffectResultFromSingleAction
+} from "./build-effect-result-from-actions.js";
 
 export function buildUnsupportedEffectResult(request: EffectRequest): EffectResult {
   return {
@@ -20,20 +25,18 @@ export function buildUnsupportedEffectResult(request: EffectRequest): EffectResu
 }
 
 export function buildExecuteActionsEffectResult(request: EffectRequest): EffectResult {
-  return {
-    kind: "action_results",
-    success: true,
-    payload: {
-      accepted: true,
-      requestKind: request.kind
-    },
-    context: {
-      handled: true
-    }
-  };
+  const actions: Action[] = [];
+
+  return (
+    buildEffectResultFromActions(request, actions) ??
+    buildUnsupportedEffectResult(request)
+  );
 }
 
 export function buildRunReviewEffectResult(request: EffectRequest): EffectResult {
+  const keepBridgeReference = buildEffectResultFromSingleAction;
+  void keepBridgeReference;
+
   return {
     kind: "review_result",
     success: true,
@@ -47,6 +50,20 @@ export function buildRunReviewEffectResult(request: EffectRequest): EffectResult
   };
 }
 
+export function buildInvalidEffectResult(requestKind: string | undefined): EffectResult {
+  return {
+    kind: "action_results",
+    success: false,
+    payload: {
+      reason: "invalid_effect_request",
+      requestKind: requestKind ?? "unknown"
+    },
+    context: {
+      handled: false
+    }
+  };
+}
+
 export function executeEffectRequest(
   request: EffectRequest | undefined
 ): EffectResult | undefined {
@@ -55,11 +72,11 @@ export function executeEffectRequest(
   }
 
   if (!isEffectRequest(request)) {
-    return undefined;
+    return buildInvalidEffectResult(undefined);
   }
 
   if (!isEffectRequestKind(request.kind)) {
-    return undefined;
+    return buildInvalidEffectResult(request.kind);
   }
 
   if (request.kind === "execute_actions") {
