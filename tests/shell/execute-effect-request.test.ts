@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { isEffectResult, type Action, type EffectRequest } from "../../src/protocol/index.ts";
 import { buildActionResult } from "../../src/shell/build-action-result.ts";
 import {
+  buildInvalidEffectResult,
+  buildUnsupportedEffectResult,
   canExecuteEffectRequest,
   executeEffectRequest
 } from "../../src/shell/execute-effect-request.ts";
 
-describe("executeEffectRequest", () => {
+describe("executeEffectRequest - normal paths", () => {
   it("returns normalized action_results for valid execute_actions request", () => {
     const request: EffectRequest = {
       kind: "execute_actions",
@@ -166,6 +168,61 @@ describe("executeEffectRequest", () => {
       requestKind: "unknown"
     });
     expect(result?.context).toEqual({ handled: false });
+  });
+});
+
+describe("executeEffectRequest - invalid/unsupported builders", () => {
+  it("buildInvalidEffectResult(undefined) returns stable invalid template", () => {
+    const result = buildInvalidEffectResult(undefined);
+
+    expect(result).toMatchObject({
+      kind: "action_results",
+      success: false,
+      payload: {
+        reason: "invalid_effect_request",
+        requestKind: "unknown"
+      },
+      context: {
+        handled: false
+      }
+    });
+  });
+
+  it("buildInvalidEffectResult(kind) keeps provided request kind", () => {
+    const result = buildInvalidEffectResult("some_kind");
+
+    expect(result).toMatchObject({
+      kind: "action_results",
+      success: false,
+      payload: {
+        reason: "invalid_effect_request",
+        requestKind: "some_kind"
+      },
+      context: {
+        handled: false
+      }
+    });
+  });
+
+  it("buildUnsupportedEffectResult(request) returns stable unsupported template", () => {
+    const request: EffectRequest = {
+      kind: "execute_actions",
+      payload: {}
+    };
+
+    const result = buildUnsupportedEffectResult(request);
+
+    expect(result).toMatchObject({
+      kind: "action_results",
+      success: false,
+      payload: {
+        reason: "unsupported_effect_request",
+        requestKind: request.kind
+      },
+      context: {
+        handled: false
+      }
+    });
   });
 });
 
