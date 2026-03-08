@@ -1,63 +1,73 @@
 # Core Runtime Visual Model
 
-这份文档用于帮助读者快速建立当前 core 运行时的心智模型。它不替代源码，而是提供一个阅读源码前的结构化入口。本文只聚焦三件事：run/step 的推进、task/plan 的选择与推进、effect cycle 的请求与回流。
+这份文档用于帮助读者快速建立当前 TypeScript agent 项目的运行时心智模型。它不替代源码阅读，而是提供一条更短的理解路径。本文聚焦当前已经落地的主线：run / step / tick 推进、shell result bridge、以及 profile 接入方式。文档内容描述的是当前实现状态，而不是未来规划。
 
 ## 2. 本文聚焦范围
 
-本次文档只围绕三张图展开：run/step 图、task/plan 图、effect 闭环图。本文不展开 glossary，不提供完整 protocol 字段参考，也不讨论 shell 侧细节。repair / replan 也不在当前范围内。
+本文当前覆盖四个方面：core run 推进、task / plan 与 currentTaskId 关系、shell 的 action-result / effect-result 桥接、app/profile 的接入点。本文不展开真实 action 执行器、review orchestration、repair / replan、以及更细粒度的场景化 profile 设计。
 
-## 图一：run / step 推进图
+## 图一：run / step / tick 推进图
 
-这张图回答的问题：一次 run 是如何通过 step 被推进的？
+这张图回答的问题：一次运行是如何从 app 入口经过 shell 与 core，被 step 和 tick 持续推进的？
 
 ```mermaid
 sequenceDiagram
-  participant C as Caller
-  participant T as run-runtime-tick.ts
-  participant D as drive-core-run.ts
-  participant S as run-single-step.ts
-  participant R as run-core-agent.ts
+  participant Caller
+  participant App as run-agent.ts
+  participant Shell as run-shell-runtime.ts
+  participant Tick as run-runtime-tick.ts
+  participant Drive as drive-core-run.ts
+  participant Step as run-single-step.ts
+  participant CoreRun as run-core-agent.ts
 
-  C->>T: runRuntimeTick(state, plan, tasks, result)
-  T->>D: driveCoreRun(state, plan, tasks)
-  loop while can continue
-    D->>S: runSingleStep(currentState, plan, tasks)
-    S->>R: initializeAgentRun(state)
-    alt no next task
-      S->>R: finalizeAgentRun(state, true)
-    else has next task
-      S-->>D: advance currentTaskId
+  Caller->>App: 调用 runAgent
+  App->>Shell: runShellRuntimeLoop
+  loop 每轮 loop
+    Shell->>Tick: runRuntimeTick
+    Tick->>Drive: driveCoreRun
+    loop core 可继续
+      Drive->>Step: runSingleStep
+      Step->>CoreRun: initializeAgentRun
+      alt 无 next task
+        Step->>CoreRun: finalizeAgentRun
+      else 有 next task
+        Step-->>Drive: 推进 currentTaskId
+      end
     end
+    Drive-->>Tick: 返回推进后 state
+    Tick-->>Shell: 返回 tick 输出
   end
-  D-->>T: preparedState
-  T-->>C: state after tick phase
+  Shell-->>App: 返回最终 state
+  App-->>Caller: 返回 RunAgentOutput
 ```
 
-`run-core-agent.ts` 更像 run 生命周期骨架，负责最小初始化与收尾。`run-single-step.ts` 更像单步推进编排，在一个 step 内串起准备与推进逻辑。`drive-core-run.ts` 更像循环驱动层，控制 step 重复执行直到稳定或达到上限。`run-runtime-tick.ts` 把这些能力放到一次 tick 入口里。这个图刻意不展开 effect request/result，目的是先看清 run 本身如何前进。
+`run-core-agent.ts` 是 run 生命周期骨架，负责最小初始化与收尾。`run-single-step.ts` 是单步推进编排，把“准备、任务推进、收尾判断”放到一次 step。`run-runtime-tick.ts` 位于 step 之外，负责把 core 推进与 effect 输入输出拼成单次 tick。`drive-core-run.ts` 承担简单循环驱动，重复执行 step 直到稳定或达到上限。`run-shell-runtime.ts` 则是 core 与 shell 之间的轮转层，负责在每轮中承接 tick 输出并组织下一轮输入。
 
 关联源文件：
-- `src/core/run-core-agent.ts`
-- `src/core/run-single-step.ts`
-- `src/core/drive-core-run.ts`
+- `src/app/run-agent.ts`
+- `src/shell/run-shell-runtime.ts`
 - `src/core/run-runtime-tick.ts`
+- `src/core/drive-core-run.ts`
+- `src/core/run-single-step.ts`
+- `src/core/run-core-agent.ts`
 
-## 图二：task / plan 选择与推进图
+## 图二：task / plan / currentTaskId 图
 
-这张图回答的问题：task 在 plan 中如何被选择，并写回到 state？
+这张图回答的问题：task 指针如何在 plan 约束下被保留、切换或清空？
 
 ```mermaid
 flowchart TD
   A[preserveOrAdvanceTask] --> B{plan 合法?}
-  B -- 否 --> Z[clear currentTaskId]
+  B -- 否 --> Z[清空 currentTaskId]
   B -- 是 --> C[selectNextTask]
-  C --> D{current task 可继续?}
+  C --> D{当前 task 可继续?}
   D -- 是 --> E[保留 currentTaskId]
   D -- 否 --> F{按 plan.taskIds 可选到 runnable task?}
-  F -- 是 --> G[advanceToNextTask 更新 currentTaskId]
+  F -- 是 --> G[advanceToNextTask 写回 currentTaskId]
   F -- 否 --> Z
 ```
 
-`select-next-task.ts` 负责“选”，核心是先看当前 task 能否继续，再按 `plan.taskIds` 顺序找 runnable task。`advance-to-next-task.ts` 负责“写回 state”，即把选中的 task id 写入 `currentTaskId`，或在选不到时清空。这个层面只关心 task 指针，不负责 run 生命周期。也就是说，task/plan 图与 run/step 图是不同抽象层：前者是局部选择逻辑，后者是整体推进节拍。把两者分开看，代码职责会更清楚。
+这张图只解释 task 指针推进，不解释整个 runtime loop。`select-next-task.ts` 负责“选”，核心是判断当前 task 是否可继续，以及是否能按 `plan.taskIds` 找到下一个 runnable task。`advance-to-next-task.ts` 负责“写回 state”，把选中的 task id 写回 `currentTaskId`。如果 plan 不可用或找不到 runnable task，路径会回到清空指针，避免状态悬挂。该层与 run/step/tick 层解耦，便于独立阅读和替换策略。
 
 关联源文件：
 - `src/core/select-next-task.ts`
@@ -66,47 +76,77 @@ flowchart TD
 - `src/protocol/plan.ts`
 - `src/protocol/agent-state.ts`
 
-## 图三：effect 闭环图
+## 图三：shell action -> effect result 桥接图
 
-这张图回答的问题：effect request 如何发出，effect result 如何回流到 state？
+这张图回答的问题：shell 如何把 `execute_actions` 请求走过 ActionResult 聚合路径并返回 EffectResult？
 
 ```mermaid
 sequenceDiagram
   participant Core
-  participant B as build-effect-request.ts
-  participant X as External Executor
-  participant A as apply-effect-result.ts
-  participant S as AgentState
+  participant Exec as execute-effect-request.ts
+  participant AR as build-action-result.ts
+  participant ER as build-effect-result-from-actions.ts
+  participant Out as EffectResult
 
-  Core->>B: buildNextEffectRequest(state, plan, tasks)
-  B-->>Core: EffectRequest | undefined
-  Core->>X: EffectRequest
-  X-->>Core: EffectResult
-  Core->>A: applyEffectResult(state, result)
-  A->>S: update state fields
-  A-->>Core: next AgentState
+  Core->>Exec: 发送 execute_actions request
+  Exec->>ER: buildEffectResultFromActions(request, actions)
+  Note over Exec,ER: 当前 actions 可能为空数组
+  ER->>AR: buildActionResult for each action
+  AR-->>ER: ActionResult 列表
+  ER-->>Exec: 聚合后的 EffectResult
+  Exec-->>Out: 返回 EffectResult
+  Out-->>Core: 回流到 core
 ```
 
-当前 external executor 还没有真正实现，图中的执行侧是预留边界。现有代码已经先把 request/result 闭环定义出来，保证 core 可以先完成输入输出形状。`build-effect-request.ts` 负责从当前状态构造请求，`apply-effect-result.ts` 负责把结果回写到 `AgentState`。成功 result 与失败 result 对 state 的影响不同，至少会体现在任务指针清理与失败状态推进上。`run-effect-cycle.ts` 负责把这两侧串起来，形成最小闭环。
+这仍不是“真实 action 执行器”，当前阶段没有接入外部执行端。现在的关键变化是 shell 主路径已不再停留在 accepted-only 占位结果，而是显式经过 `Action -> ActionResult -> EffectResult` 桥接分层。即使 action 列表当前可为空，链路形状已经稳定，后续可在不改协议边界的前提下替换执行实现。这个分层让 shell 更容易从占位逻辑平滑过渡到真实执行逻辑。它是从 placeholder loop 向真实 loop 迈进的一步。
 
 关联源文件：
-- `src/core/build-effect-request.ts`
-- `src/core/apply-effect-result.ts`
-- `src/core/run-effect-cycle.ts`
-- `src/protocol/effect-request.ts`
+- `src/shell/execute-effect-request.ts`
+- `src/shell/build-action-result.ts`
+- `src/shell/build-effect-result-from-actions.ts`
+- `src/protocol/action.ts`
+- `src/protocol/action-result.ts`
 - `src/protocol/effect-result.ts`
 
-## 6. 推荐阅读顺序
+## 图四：app / profile 接入图
 
-1. 先看 `src/protocol/agent-state.ts`、`src/protocol/task.ts`、`src/protocol/plan.ts`：先建立运行对象和最小数据边界，再看流程才不容易混淆。
-2. 再看 `src/core/transition-engine.ts` 和 `src/core/terminal.ts`：先理解状态能不能变、何时视为终态。
-3. 再看 `src/core/select-next-task.ts` 与 `src/core/advance-to-next-task.ts`：先看 task 是如何被选择并写回 state。
-4. 再看 `src/core/run-single-step.ts`、`src/core/drive-core-run.ts`：把前面的状态与任务逻辑放进 step 和循环驱动里。
-5. 最后看 `src/core/build-effect-request.ts`、`src/core/apply-effect-result.ts`、`src/core/run-effect-cycle.ts`：理解 core 与外部执行边界如何形成 request/result 闭环。
+这张图回答的问题：app 与 profile 当前如何接入主线运行，并影响运行方式？
 
-## 7. 当前模型的边界
+```mermaid
+flowchart TD
+  A[外部调用] --> B{入口类型}
+  B -- 直接入口 --> C[run-agent.ts]
+  B -- profile 入口 --> D[run-agent-with-profile.ts]
+  D --> E{传入 profile?}
+  E -- 否 --> F[default-profile.ts]
+  E -- 是 --> G[使用传入 profile]
+  F --> H[解析 maxSteps autoRunToCompletion allowShellExecution]
+  G --> H
+  H --> D
+  C --> I[run-shell-runtime.ts]
+  D --> I
+  D --> J[读取 review 开关 未接入主流程]
+```
 
-- shell 尚未真正接入。
-- 真实 action execution 尚未展开。
-- review orchestration 尚未展开。
-- repair / replan 尚未展开。
+外部当前可以直接使用 `run-agent.ts`，也可以走 `run-agent-with-profile.ts`。当未传入 profile 时，会回退到 `default-profile.ts` 提供默认运行策略。profile 当前主要影响 `maxSteps`、`autoRunToCompletion`、`allowShellExecution`。`review` 开关已经被读取，但尚未接入主流程分支。当前 profile 仍偏 runtime profile，尚未进入更强的场景化装配。
+
+关联源文件：
+- `src/app/run-agent.ts`
+- `src/app/run-agent-with-profile.ts`
+- `src/profiles/default-profile.ts`
+- `src/shell/run-shell-runtime.ts`
+
+## 7. 推荐阅读顺序
+
+1. 先看 protocol 的 `agent-state.ts`、`task.ts`、`plan.ts`：先建立状态对象和任务对象边界，再看流程更容易定位字段含义。
+2. 再看 core 的 state / task helper：先理解状态迁移规则与 task 选择规则，后续循环代码才容易读通。
+3. 再看 `run-single-step.ts`、`drive-core-run.ts`、`run-runtime-tick.ts`：把前面的局部规则放进 step、loop、tick 三层执行节拍中。
+4. 再看 shell 的 `build-action-result.ts`、`build-effect-result-from-actions.ts`、`execute-effect-request.ts`：理解 shell 如何把 action 结果聚合为 effect 结果。
+5. 最后看 app/profile 接入文件：在理解内核路径后，再看入口封装和 profile 约束会更直观。
+
+## 8. 当前模型的边界
+
+- 真实 action 执行器尚未接入。
+- review orchestration 尚未进入主流程。
+- repair / replan 尚未实现。
+- 场景化 profile 尚未实现。
