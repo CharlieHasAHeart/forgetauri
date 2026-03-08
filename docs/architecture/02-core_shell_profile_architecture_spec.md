@@ -1,178 +1,111 @@
-# Core + Shell + Profile 总体架构规范
+# Core / Shell / Profile Architecture Spec
 
-**文档 ID**: AGENT-ARCH-SYSTEM-002  
-**标题**: Core + Shell + Profile 总体架构规范  
-**版本**: 1.1.0  
-**状态**: Draft  
-**受众**: 架构师、工程师、评审者、代码生成工具  
-**语言**: 中文  
-**更新时间**: 2026-03-06
+本文描述当前仓库的整体分层架构与协作关系。文档聚焦当前已经实现的五层基线，而不是未来完整 agent 平台的总设计。内容以当前代码可对照的文件为准，避免把预留能力写成已落地实现。建议结合 `01-agent_architecture_glossary.md` 与 `02-core_runtime_visual_model.md` 一起阅读。
 
----
+## 2. 当前架构基线
 
-## 1. 目的
+当前仓库采用的是五层基线：Protocol、Core、Shell、App、Profile。
 
-本文定义系统总体分层与边界，明确：
+之所以不是仅写 Core / Shell / Profile 三层，是因为 Protocol 已经作为共享数据层独立存在，承担跨层对象与守卫定义；同时 App 已经作为运行入口层独立存在，负责对外调用封装。
 
-1. Core、Shell、Profile 的职责；
-2. 控制流与依赖方向；
-3. LLM/工具/中间件/沙箱应位于哪一层；
-4. 哪些能力允许扩展，哪些语义禁止漂移。
+本文描述的是当前实现态，不代表最终形态。
 
----
+## 3. 五层总览
 
-## 2. 架构目标
+| 层 | 当前职责 | 当前代表文件 | 不负责的内容 |
+|---|---|---|---|
+| Protocol | 定义共享协议对象、`kind/success/payload/context` 等跨层结构与守卫 | `src/protocol/agent-state.ts`<br>`src/protocol/action.ts`<br>`src/protocol/effect-request.ts`<br>`src/protocol/effect-result.ts` | 不负责任何运行编排或执行循环 |
+| Core | 定义 run/step/tick 推进语义、task 指针推进、effect 请求与结果吸收逻辑 | `src/core/run-single-step.ts`<br>`src/core/drive-core-run.ts`<br>`src/core/run-runtime-tick.ts` | 不直接做 shell 执行与外部调用 |
+| Shell | 承接 effect request，构造 action/effect 结果并驱动外层 runtime loop | `src/shell/execute-effect-request.ts`<br>`src/shell/build-action-result.ts`<br>`src/shell/run-shell-runtime.ts` | 不定义 task 选择语义和 core 状态机语义 |
+| App | 提供对外运行入口与调用包装 | `src/app/run-agent.ts`<br>`src/app/run-agent-with-profile.ts` | 不定义协议对象，不实现 shell/core 细节 |
+| Profile | 提供运行约束对象与默认策略 | `src/profiles/default-profile.ts` | 当前不等于完整场景装配平台 |
 
-1. **核心语义稳定**：Core 只定义状态机与运行语义。  
-2. **外部能力可替换**：provider/tool/sandbox 可替换，不破坏 Core。  
-3. **场景装配独立**：不同业务工作流由 Profile 提供，不污染 Core。  
-4. **全链路可审计**：上下文、证据、执行轨迹可追踪。  
-5. **扩展可控**：通过 middleware/hook 增强，不通过 core 分叉。
+## 分层关系图
 
----
-
-## 3. 三层模型
-
-```text
-Profile（场景装配）
-   |
-   v
-Shell（外部效应层）
-   ^
-   |
-Core（封闭语义内核）
+```mermaid
+flowchart TD
+  E[External Caller] --> A[App]
+  P[Profile] --> A
+  A --> S[Shell]
+  S --> C[Core]
+  T[Protocol] --> A
+  T --> S
+  T --> C
+  T --> P
 ```
 
-### 3.1 Core（内核）
+External Caller 当前通过 App 层发起运行。App 会接入 Profile 约束，并将运行委托给 Shell。Shell 在每轮中驱动 Core 的推进与结果回流。Core、Shell、App、Profile 都共享 Protocol 中的标准化对象。Profile 当前主要影响运行方式，不直接改写 Core 语义。Protocol 是共享数据层，不承担 orchestration 职责。
 
-负责：
+## 当前主线路径
 
-- 状态与状态迁移；
-- plan/task/milestone/review/replan 语义；
-- 何时 done / failed 的最终判定。
+1. 外部调用 app 入口：从 `runAgent` 或 `runAgentWithProfile` 发起一次运行。
+2. app 可直接运行，也可通过 profile-based 入口运行：profile 入口会先解析默认或传入 profile 再决定运行方式。
+3. shell runtime 负责 loop 轮转：`runShellRuntimeLoop` 在每一轮连接 core 输出与 shell 处理结果。
+4. runtime tick 负责 core 内部推进与 result/request 组织：`runRuntimeTick` 先推进 core，再吸收 result，再准备下一条 request。
+5. shell 主入口负责 effect request/result 桥接：`executeEffectRequest` 将 request 走入 action/effect result 构造链路并返回 effect result。
 
-不负责：
+## 各层详细说明
 
-- 直接调用 LLM；
-- 直接执行工具命令；
-- 绑定具体 workflow 工具名；
-- 维护 provider 私有协议。
+### Protocol
 
-### 3.2 Shell（外部效应层）
+1. 当前职责：提供跨层共享的协议对象、守卫与统一导出入口。
+2. 当前已实现内容：`AgentState`、`Plan`、`Task`、`Action`、`ActionResult`、`EffectRequest`、`EffectResult` 等对象均已落地；`kind/success/payload/context` 结构已形成统一表达。
+3. 当前未实现 / 不负责内容：不负责运行循环、任务调度、外部执行。
 
-负责：
+### Core
 
-- 接收 Core 请求并执行外部动作；
-- 组装上下文并调用 provider；
-- 执行工具、命令、沙箱；
-- 归一化结果并回传 Core；
-- 记录 evidence/audit。
+1. 当前职责：定义 run/step/tick 的最小运行语义，维护 task 指针推进和 effect 吸收逻辑。
+2. 当前已实现内容：`run-core-agent.ts`、`run-single-step.ts`、`drive-core-run.ts`、`run-runtime-tick.ts` 已形成主线；task 选择与 `currentTaskId` 推进已落地。
+3. 当前未实现 / 不负责内容：不负责真实执行器接入，不负责 review/repair/replan 编排。
 
-### 3.3 Profile（场景装配层）
+### Shell
 
-负责：
+1. 当前职责：将 core 发出的 effect request 桥接为可回流的 effect result，并组织 shell 侧最小 loop。
+2. 当前已实现内容：`build-action-result.ts` 与 `build-effect-result-from-actions.ts` 已形成 `Action -> ActionResult -> EffectResult` 桥接；`execute-effect-request.ts` 已接入这条路径。
+3. 当前未实现 / 不负责内容：尚未接入真实 action executor，不负责定义 core task 语义。
 
-- 选择工具集与 middleware；
-- 设定 policy（allowed tools/commands/budgets）；
-- 注入场景规则（例如 patch 工作流、HITL 规则）。
+### App
 
-限制：
+1. 当前职责：对外暴露稳定运行入口并封装调用参数。
+2. 当前已实现内容：`run-agent.ts` 提供基础入口；`run-agent-with-profile.ts` 提供 profile 接入入口。
+3. 当前未实现 / 不负责内容：不负责协议定义，不负责 shell/core 内部实现细节。
 
-- 不能直接改写 Core 状态机语义；
-- 只能通过 Shell 能力配置影响执行路径。
+### Profile
 
----
+1. 当前职责：提供 runtime 约束对象，影响步数上限和运行方式。
+2. 当前已实现内容：`default-profile.ts` 提供默认 profile、克隆与参数解析函数。
+3. 当前未实现 / 不负责内容：当前实现仍偏 runtime profile，尚未展开场景化 profile 体系。
 
-## 4. 依赖方向（强约束）
+## 当前最关键的跨层接口
 
-1. Core 可以依赖 contracts，不依赖 profile。  
-2. Profile 可以依赖 core contracts，但反向依赖禁止。  
-3. Middleware 属于外部能力，不属于 Core 语义定义。  
-4. 任意 workflow 专用工具名不得硬编码进 Core 默认逻辑。
+| 接口 | 所在层 | 作用 |
+|---|---|---|
+| `AgentState` | Protocol | 表达一次 run 的状态快照并跨层流转 |
+| `Plan` | Protocol | 表达任务组织结构与计划约束 |
+| `Task` | Protocol | 表达可推进的最小任务单元 |
+| `Action` | Protocol | 表达待执行动作 |
+| `ActionResult` | Protocol | 表达单个动作结果 |
+| `EffectRequest` | Protocol | core 发给 shell 的标准请求 |
+| `EffectResult` | Protocol | shell 回流给 core 的标准结果 |
+| `runRuntimeTick` | Core | 单次 tick 内组织 core 推进与 request/result 吸收 |
+| `executeEffectRequest` | Shell | 承接 effect request 并返回 effect result |
+| `runShellRuntimeLoop` | Shell | 轮转执行 shell/runtime 最小闭环 |
+| `runAgent` | App | 对外基础运行入口 |
+| `runAgentWithProfile` | App | 带 profile 约束的对外运行入口 |
 
----
+## 当前架构边界
 
-## 5. 运行时交互模型
+- 真实 action executor 尚未接入。
+- review orchestration 尚未进入主线路径。
+- repair / replan 尚未落地。
+- 场景化 profile 尚未落地。
+- middleware / hook / HITL 当前仍不是主线实现。
 
-### 5.1 请求-结果模型
+## 9. 推荐阅读顺序
 
-- Core 发出语义请求（例如：规划、执行、重规划）。  
-- Shell 执行外部动作并返回归一化结果。  
-- Core 消费结果并推进状态机。
-
-### 5.2 典型一轮流程
-
-1. Core 生成当前阶段上下文需求。  
-2. Shell 组装 ContextPacket 并调用 Planner/LLM。  
-3. Shell 按 policy + middleware 执行工具动作。  
-4. Shell 返回结构化结果与 evidence。  
-5. Core 执行 criteria/review，决定继续、修复或失败。
-
----
-
-## 6. 中间件与 Hook 策略
-
-中间件用于机制增强，不改核心语义：
-
-- `init`：包装运行时能力（如 runCmdImpl）；
-- `tools`：注入工具；
-- `wrapProvider`：注入 provider 规则；
-- `hooks`：在关键点拦截/观测（如 `onBeforeToolCall`）。
-
-推荐边界：
-
-- 人审 HITL：放 middleware；
-- 文件系统能力：放 middleware；
-- 业务工作流限制：放 Profile policy，不放 Core。
-
----
-
-## 7. 里程碑与全局验收门禁
-
-架构要求：
-
-1. task 完成不等于 milestone 完成；必须执行 milestone review gate。  
-2. milestones 完成不等于 run 完成；必须执行 integration review gate。  
-3. review 失败进入 repair/replan 循环，预算耗尽才失败终止。
-
-这套 gate 机制属于 Core 语义，不属于某个 Profile 的业务特例。
-
----
-
-## 8. 扩展新工作流的方法
-
-新增工作流时：
-
-1. 新建 `src/profiles/<your_profile>.ts`；
-2. 组合所需工具和 middleware；
-3. 配置 policy 与预算；
-4. 调用 `runCoreAgent`。
-
-不要：
-
-- 修改 Core 去适配某个具体 workflow；
-- 在 Core 默认 planner/policy 写入场景专用工具名。
-
----
-
-## 9. 审计与回放
-
-系统应保留以下可回放信息：
-
-- context packet 引用；
-- evidence 引用；
-- tool 调用与结果；
-- milestone/goal review 历史；
-- 失败原因与重规划轨迹。
-
-目标是“可解释失败、可重放决策、可对比修复路径”。
-
----
-
-## 10. 实施建议
-
-1. 保持 contracts 稳定，避免跨层类型漂移。  
-2. workflow 规则统一下沉到 profile。  
-3. Core 只做语义，不做场景偏好。  
-4. 先补测试再扩能力，优先覆盖 review gate 与 replan 路径。
-
+1. 先读 glossary：先统一术语语义，后续读代码和图更少歧义。
+2. 再读 runtime visual model：先建立 run/step/tick 与 effect 闭环的总体心智模型。
+3. 再读 protocol 层文件：先掌握跨层对象结构，便于理解后续函数输入输出。
+4. 再读 core 层关键文件：理解状态推进、task 指针和 tick 组织逻辑。
+5. 再读 shell 层关键文件：理解 request/result 如何桥接并进入 loop。
+6. 最后读 app/profile 入口：把前面分层能力映射到对外可调用入口。
