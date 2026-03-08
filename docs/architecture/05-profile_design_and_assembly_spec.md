@@ -2,49 +2,53 @@
 
 **文档 ID**: AGENT-ARCH-PROFILE-005  
 **标题**: Profile 设计与装配规范  
-**版本**: 1.1.0  
+**版本**: 1.2.0  
 **状态**: Draft  
 **受众**: 架构师、工程师、评审者、代码生成工具  
 **语言**: 中文  
-**更新时间**: 2026-03-07
+**更新时间**: 2026-03-08
 
 ---
 
-## 1. 目的
+## 1. 引言与目的
 
-本文定义 Profile 层的职责、可配置边界与装配方式，确保：
-
-1. 场景能力由 Profile 组织；
-2. Core 不被 workflow 细节污染；
-3. 不同场景可并行演进且互不干扰。
+本文是当前五层基线中的 Profile 规范文档。`02-core_shell_profile_architecture_spec.md` 负责整体分层与主线路径；`03-core_internal_design_and_agent_loop_spec.md` 负责 Core 内部语义；`04-shell_internal_design_and_effect_handling_spec.md` 负责 Shell 内部职责、effect request/result 桥接与结果归一化；本文只负责 Profile 的配置边界、装配职责与场景约束输入。本文描述的是当前实现态与规范边界，不是未来完整场景装配平台的总设计。
 
 ---
 
 ## 2. Profile 的定位
 
-Profile 是 **Shell 的装配输入**，不是 Core 的语义依赖。
+Profile 是 **Shell 的装配输入（shell assembly input）**，不是 Core 的语义依赖。
 
-Profile 主要负责：
+Profile 可配置：
 
-- 选择并组合工具；
-- 选择并组合 middleware；
-- 设定 policy（allowed tools/commands、budgets）；
-- 注入场景规则（例如 patch 工作流、人审策略）。
+- handler bindings
+- capability bindings
+- action policy
+- context policy
+- middleware selection
+- sandbox policy
+- review routing policy
 
 Profile 不负责：
 
-- 定义 done/failed 语义；
-- 改写 Core 状态迁移；
-- 绕过 Core 验收门禁。
+- 定义 `done` / `failed`
+- 改写 Core transition
+- 改写 task / milestone / goal acceptance semantics
+- 把 provider/tool/sandbox 原生对象引入 Core 原语
+
+Profile 不是 Core semantic plug-in，也不是 runtime state machine extension。
 
 ---
 
 ## 3. 设计原则
 
-1. **单一职责**：一个 Profile 聚焦一个场景。  
-2. **显式装配**：工具、策略、中间件必须在 Profile 中可见。  
-3. **可审计**：关键策略（如人审、命令白名单）必须可追踪。  
-4. **可替换**：新增场景通过新 Profile，而不是改 Core 默认逻辑。
+1. **Declarative Assembly First**：Profile 以声明式配置描述场景约束，不直接编写 Core 语义分支。  
+2. **Explicit Configuration Surface**：所有策略面应显式可见，避免隐式规则注入。  
+3. **Preserve Profile-Agnostic Core Semantics**：Core 保持 profile-agnostic 语义，不因 Profile 改写状态机定义。  
+4. **Replace by New Profile, Not by Core Mutation**：扩展场景优先新增或替换 Profile，而不是修改 Core 语义。  
+5. **Auditability of Policy Surface**：策略面（policy/middleware/capability）必须可追踪、可解释。  
+6. **Capability Binding Without Semantic Drift**：能力绑定可以变化，但不得造成语义漂移到 Core。
 
 ---
 
@@ -52,70 +56,104 @@ Profile 不负责：
 
 ```text
 src/profiles/
-  <profile_name>.ts
+  default-profile.ts
+  index.ts
 ```
 
-Profile 工厂推荐输出：
+当前基线下，Profile 入口与使用建议：
 
-- `CoreRunDeps`（registry、policy、middlewares、humanReview 等）
-- 或更高层的 `run<ProfileName>(...)` 包装函数
+- Profile 文件位于 `src/profiles/`，以运行约束对象形式提供配置；
+- 默认实现参考 `src/profiles/default-profile.ts`；
+- app 层接入参考 `src/app/run-agent-with-profile.ts`。
+
+当前 Profile 更像 runtime constraint object / shell assembly input，不应把 `CoreRunDeps`、registry 或 `run<ProfileName>` 作为本文主轴规范。
 
 ---
 
 ## 5. 装配内容规范
 
-### 5.1 Registry 装配
+### 5.1 Handler / Capability Binding
 
-- 可以在 `baseRegistry` 上追加场景工具；
-- 禁止在 Core 内强制注入场景工具名；
-- 工具冲突应在装配阶段显式报错。
+可以配置：为不同 effect intent 绑定对应 handler 与 capability。  
+不能做：通过绑定直接改写 Core 状态机语义或终态判定。
 
-### 5.2 Middleware 装配
+### 5.2 Action Policy / Command Policy
 
-- middleware 顺序即执行顺序；
-- 需要审计的门禁（如 HITL）应放在可观测位置；
-- 不建议在 middleware 中隐式改变 Core 语义。
+可以配置：action allow/deny、command allowlist、预算与风险门禁。  
+不能做：把命令策略写成 Core 语义规则或绕过 Core 验收语义。
 
-### 5.3 Policy 装配
+### 5.3 Context Policy
 
-- allowed_tools / allowed_commands 由 Profile 明确给出；
-- budget 可按场景覆盖；
-- 不得在 Core 默认 policy 中写入场景专用工具名。
+可以配置：Shell 侧上下文构造策略与输入裁剪策略。  
+不能做：把 provider/message 私有结构作为 Core 协议对象前提。
 
-### 5.4 Planner 规则注入
+### 5.4 Middleware Selection
 
-- 场景规则应通过 Profile 层（如 wrapProvider）注入；
-- Core 默认 planner 保持通用，不绑定 workflow。
+可以配置：middleware 的启用与顺序（如 logging、metrics、safety checks）。  
+不能做：让 middleware 改写 Core semantics。
+
+### 5.5 Sandbox Policy
+
+可以配置：sandbox 使用策略、命令执行审批策略、风险拒绝策略。  
+不能做：把 sandbox 实现细节暴露为 Core 原语。
+
+### 5.6 Review Routing Policy
+
+可以配置：review 请求的路由与处理优先级（Shell 装配层）。  
+不能做：把 review acceptance 语义从 Core 转移到 Profile。
+
+> 以上配置全部作用于 Shell assembly，不得越界改写 Core 语义。
 
 ---
 
 ## 6. 与 HITL 的关系
 
-Profile 可以决定是否启用 HITL middleware，以及：
-
-- 哪些工具属于 patch apply gate；
-- 哪些命令需要 command exec 人审；
-- 拒绝时的行为（deny 或中断）。
-
-这类策略属于 Profile，不属于 Core。
+HITL 是 Profile 可配置的治理策略之一，属于 Shell governance / assembly choice。Profile 可以声明哪些操作需人工审批、拒绝后如何处理、哪些路径进入人工确认。HITL 不是 Profile 的唯一核心职责，也不应被写成 Core 语义的一部分。
 
 ---
 
-## 7. 版本与演进
+## 7. 当前实现态
 
-Profile 演进建议：
+当前 Profile 实现仍偏 runtime profile / default profile。主线已落地能力主要是默认 profile、参数解析与运行方式约束（如 `maxSteps`、`autoRunToCompletion`、`allowShellExecution`、`enableReview` 读取）。
 
-1. 先新增 Profile，不直接破坏现有 Profile；
-2. 变更 policy/tool/middleware 时同步文档；
-3. 为关键场景提供最小 smoke 测试；
-4. 明确声明该 Profile 的适用目标与限制。
+尚未形成完整 scenario-specific profile assembly system。文中提到的更强场景化装配能力属于可扩展方向，不应表述为当前已完整落地。
 
 ---
 
-## 8. 评审清单
+## 8. 当前边界 / 非目标
 
-- 是否有场景工具被硬编码进 Core？
-- 是否所有场景规则都在 Profile 中显式声明？
-- 是否 policy 与 middleware 组合可解释？
-- 是否保留了 Core 的通用性与封闭语义？
+本文不定义：
 
+- Core 语义；
+- Shell 内部 effect handler 细节；
+- provider adapter 实现；
+- tool executor 实现；
+- sandbox 实现；
+- middleware 内部机制；
+- App 对外入口设计。
+
+这些内容分别属于 02 / 03 / 04 或 app 文档范围，不属于 Profile 规范主体。
+
+---
+
+## 9. 版本与演进
+
+Profile 演进应遵循：
+
+1. 新场景优先通过新增或替换 Profile 实现；
+2. 不通过修改 Core 语义来适配新场景；
+3. 不通过让 Profile 越界修改 Shell 边界协议来适配新场景；
+4. policy / middleware / capability 变更需同步文档与命名。
+
+核心原则：**Replace by New Profile, Not by Core Mutation**。
+
+---
+
+## 10. 评审清单
+
+- 是否把场景规则错误地下沉进 Core？
+- 是否让 Profile 越界改写 Shell 边界协议？
+- 是否把 provider/tool/sandbox 私有结构暴露为 Profile 语义前提？
+- 是否保留了 Core 的 profile-agnostic semantics？
+- 是否把当前未落地能力误写成已实现？
+- 是否所有 policy / middleware / capability bindings 都在 Profile 中显式声明？
