@@ -157,6 +157,45 @@ describe("run-shell-runtime", () => {
     expect(loopState).toEqual(step.tick.state);
   });
 
+  it("runShellRuntimeLoop(2) consumes first step result on second iteration", () => {
+    const firstStep = runShellRuntimeStep(baseState, plan, tasks, undefined);
+    const secondStep = runShellRuntimeStep(firstStep.tick.state, plan, tasks, firstStep.result);
+
+    const loopState = runShellRuntimeLoop(baseState, plan, tasks, 2);
+
+    expect(secondStep.tick.state).toMatchObject({
+      status: "running",
+      lastEffectResultKind: "action_results",
+      currentTaskId: undefined
+    });
+    expect(loopState).toEqual(secondStep.tick.state);
+  });
+
+  it("runShellRuntimeLoop stops after failed incoming result and keeps failure state", () => {
+    const failedIncoming: EffectResult = {
+      kind: "action_results",
+      success: false,
+      payload: {
+        reason: "forced_failure"
+      },
+      context: {
+        handled: false
+      }
+    };
+
+    const step = runShellRuntimeStep(baseState, plan, tasks, failedIncoming);
+    const loopState = runShellRuntimeLoop(step.tick.state, plan, tasks, 2);
+
+    expect(step.tick.state).toMatchObject({
+      status: "failed",
+      lastEffectResultKind: "action_results"
+    });
+    expect(loopState).toMatchObject({
+      status: "failed",
+      lastEffectResultKind: "action_results"
+    });
+  });
+
   it("runShellRuntimeLoop(1) remains consistent with step + effect-entry contract", () => {
     const step = runShellRuntimeStep(baseState, plan, tasks, undefined);
     const loopState = runShellRuntimeLoop(baseState, plan, tasks, 1);
