@@ -5,9 +5,10 @@ import {
   type Plan,
   type Task
 } from "../protocol/index.js";
-import { driveCoreRun, isCoreRunStable } from "./drive-core-run.js";
+import { isCoreRunStable } from "./drive-core-run.js";
 import { applyRuntimeStepResult } from "./apply-runtime-step-result.js";
 import { canRunEffectCycle } from "./run-effect-cycle.js";
+import { prepareRuntimeStepState } from "./prepare-runtime-step-state.js";
 import { prepareRuntimeStepRequest } from "./prepare-runtime-step-request.js";
 import { isAgentStateTerminal } from "./terminal.js";
 import { cloneAgentState } from "./transition-engine.js";
@@ -22,11 +23,7 @@ export function prepareRuntimeTickState(
   plan: Plan | undefined,
   tasks: Task[]
 ): AgentState {
-  if (isAgentStateTerminal(state)) {
-    return cloneAgentState(state);
-  }
-
-  return driveCoreRun(state, plan, tasks);
+  return prepareRuntimeStepState(state, plan, tasks);
 }
 
 export function prepareRuntimeTickRequest(
