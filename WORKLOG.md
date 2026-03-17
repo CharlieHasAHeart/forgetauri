@@ -109,5 +109,3 @@ Recommended entry structure:
 ### Result
 
 * the repository now has a lighter document system better suited for repeated Codex-assisted work
-
-```

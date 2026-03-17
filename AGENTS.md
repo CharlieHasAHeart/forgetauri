@@ -17,7 +17,7 @@ Document roles:
 
 - `AGENTS.md` = stable workflow and long-lived rules
 - `ROADMAP.md` = current overview, priorities, and sequencing
-- `WORKLOG.md` = per-commit work record and latest handoff context
+- `WORKLOG.md` = work record only
 
 ---
 
@@ -40,13 +40,13 @@ Interpretation by role:
 
 - `AGENTS.md` defines how to work
 - `ROADMAP.md` defines what is prioritized now
-- `WORKLOG.md` defines what just happened and what to do next
+- `WORKLOG.md` records what has been done
 
 If they seem to conflict:
 
 - follow `AGENTS.md` for collaboration rules
 - follow `ROADMAP.md` for priority and sequencing
-- follow `WORKLOG.md` for latest execution context
+- treat `WORKLOG.md` as factual history only
 
 ---
 
@@ -160,7 +160,7 @@ Do not let the documents collapse into each other:
 For normal development work:
 
 * each meaningful commit or push should produce one `WORKLOG.md` entry
-* the entry should record what changed, why, result, and next step
+* the entry should record what changed, scope, and result
 * commit / push without a corresponding worklog update is incomplete unless explicitly justified
 
 Minor typo-only or formatting-only changes may be skipped.
@@ -177,10 +177,9 @@ A meaningful task is not fully complete until:
 * tests or validation are updated when appropriate
 * relevant docs are aligned
 * `WORKLOG.md` is updated when required
-* the next likely step remains visible
 
 One-line operating rule:
 
 Read `AGENTS.md` to know how to work,
 read `ROADMAP.md` to know what matters now,
-read `WORKLOG.md` to know what just happened and what to do next.
+read `WORKLOG.md` to know what has been done.

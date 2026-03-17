@@ -21,7 +21,7 @@ Related document roles:
 
 - `AGENTS.md` = startup protocol and long-lived rules
 - `ROADMAP.md` = overview, priorities, and sequencing
-- `WORKLOG.md` = per-commit work record and latest execution context
+- `WORKLOG.md` = work record only
 
 ---
 
