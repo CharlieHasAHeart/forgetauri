@@ -1,444 +1,535 @@
-# AGENTS.md
+# AGENTS
 
-## 1. Purpose
+## 0. Document Role
 
-This repository implements an agent architecture based on:
+This document defines the long-lived collaboration rules for this repository.
 
-- **Closed Core**
-- **Effect Shell**
-- **Profile-driven Shell Assembly**
+It is written for both:
 
-This file exists to guide AI coding agents (for example Codex-like tools) when reading, modifying, or generating code in this repository.
+- human contributors
+- Codex / agent collaborators
 
-The goal of this file is to ensure that automated code changes remain aligned with the architecture and terminology of the project.
+This file should remain relatively stable.
+It should describe how work should be performed, not act as a short-term progress log.
 
-This file is normative for code generation tasks unless a task-specific instruction explicitly overrides it.
+Use the document stack in this order:
 
----
-
-## 2. Project Architecture Summary
-
-This project is organized around three top-level concepts:
-
-1. **Core**
-2. **Shell**
-3. **Profile**
-
-### 2.1 Core
-
-Core is a **closed semantic runtime kernel**.
-
-Core owns:
-
-- state machine semantics
-- state transitions
-- run / milestone / task lifecycle semantics
-- verification semantics
-- repair / replan semantics
-- terminal semantics (`done`, `failed`)
-
-Core does **not** own:
-
-- LLM clients
-- message / prompt construction
-- tool execution
-- middleware pipelines
-- sandbox execution
-- profile-specific runtime behavior
-
-### 2.2 Shell
-
-Shell is the **effect execution and integration layer**.
-
-Shell owns:
-
-- effect request routing
-- context construction
-- message assembly
-- LLM integration
-- action execution
-- middleware
-- sandbox usage
-- result normalization
-- external capability integration
-
-Shell does **not** define Core semantics.
-
-### 2.3 Profile
-
-Profile is a **scenario-specific shell configuration package**.
-
-Profile configures:
-
-- shell handler bindings
-- capability bindings
-- action policy
-- context policy
-- middleware selection
-- sandbox policy
-- review routing policy
-
-Profile does **not** change Core semantics.
+1. `AGENTS.md` — collaboration rules and repository-wide working principles
+2. `ROADMAP.md` — current phases, priorities, and what should happen next
+3. `WORKLOG.md` — current working state, recent decisions, and handoff context
 
 ---
 
-## 3. Canonical Document Set
+## 1. Project Identity
 
-This repository architecture is defined by the following documents:
+### 1.1 Mission
 
-1. `agent_architecture_glossary.md`
-2. `core_shell_profile_architecture_spec.md`
-3. `core_internal_design_and_agent_loop_spec.md`
-4. `shell_internal_design_and_effect_handling_spec.md`
-5. `profile_design_and_assembly_spec.md`
-6. `core_shell_protocol_and_data_model_spec.md`
+This repository is building a constrained, scenario-oriented agent runtime intended to support desktop application generation under a fixed technical-stack contract.
 
-When making substantial architectural or structural changes, you MUST align with these documents.
+The goal is not to build an unconstrained general-purpose agent platform.
+The goal is to build a runtime that is:
 
-If a code change appears to conflict with them, do not silently “improve” the architecture in code. Instead, preserve the documented architecture unless the task explicitly asks for an architecture revision.
+- structurally clear
+- semantically meaningful
+- governable
+- scenario-driven
+- evolvable toward production use
 
----
+### 1.2 Current Repository Identity
 
-## 4. Required Terminology
+At the current stage, this repository should be understood as:
 
-Use the following terms consistently in code, comments, commit messages, and generated documentation:
+**a pre-production runtime kernel / early integration-stage agent architecture repository**
 
-### Core-side terms
-- `state`
-- `state machine`
-- `transition`
-- `run`
-- `plan`
-- `milestone`
-- `task`
-- `action`
-- `evidence`
-- `verify`
-- `repair`
-- `replan`
-- `done`
-- `failed`
+It already contains a meaningful runtime baseline, but it is not yet a production-ready agent system.
 
-### Shell-side terms
-- `effect request`
-- `effect result`
-- `effect handler`
-- `context engine`
-- `message assembler`
-- `capability layer`
-- `result normalizer`
-- `middleware`
-- `sandbox`
+### 1.3 Current Scope
 
-### Provider / external terms
-- `LLM`
-- `message`
-- `prompt`
-- `tool-calling`
-- `tool`
-- `command runner`
+The current scope includes:
 
-### Terminology constraints
-- Do **not** use provider-native tool-calling terminology as a Core primitive.
-- Do **not** use `done` to mean task completion or milestone completion.
-- Do **not** treat prompt/message objects as Core runtime objects.
-- Do **not** describe Profile as altering Core state machine logic.
+- runtime architecture
+- runtime state progression
+- effect request / result flow
+- profile-constrained runtime entry
+- early scenario-oriented design for desktop app generation
+- semantic closure and execution-governance preparation
+
+### 1.4 Out of Scope
+
+The following are currently outside the intended scope:
+
+- broad “do anything” agent behavior
+- multi-scenario platformization
+- premature provider generalization
+- turning profile into a second semantic engine
+- structural refactoring without clear semantic payoff
 
 ---
 
-## 5. Core/Shell Boundary Rules
+## 2. Architecture View
 
-These rules are strict.
+### 2.1 Layer Map
 
-### 5.1 The Core MUST NOT directly own or import:
-- provider-native message objects
-- LLM clients
-- tool registries used as semantic control primitives
-- sandbox session objects
-- middleware chains that alter semantics
-- profile-specific behavior as semantic branching
+The repository currently uses a five-layer baseline:
 
-### 5.2 The Shell MUST:
-- receive normalized `EffectRequest`
-- return normalized `EffectResult`
-- normalize all provider-native and executor-native outputs before returning to Core
+- `protocol`
+- `core`
+- `shell`
+- `app`
+- `profiles`
 
-### 5.3 The Profile MUST:
-- configure the Shell only
-- remain outside the Core semantic model
+### 2.2 Responsibility Boundaries
 
-### 5.4 Never violate this dependency direction:
+#### `protocol`
 
-```text
-Profile -> Shell -> Core
-```
+Owns cross-layer object shapes and normalized runtime-facing data structures.
 
-Do **not** introduce:
+#### `core`
 
-```text
-Profile -> Core
-LLM -> Core
-Tool -> Core
-Sandbox -> Core
-Middleware -> Core semantics
-```
+Owns runtime semantics and state progression.
+Core is the semantic center of the system.
 
----
+#### `shell`
 
-## 6. Canonical Runtime Model
+Owns effect handling and execution bridging.
+Shell is where requests are executed and results are normalized back into runtime-compatible form.
 
-The canonical agent loop is:
+#### `app`
 
-**Plan -> Dispatch -> Execute -> Verify -> Repair**
+Owns thin public entry points and caller-facing runtime wrappers.
+App is not the semantic center.
 
-### 6.1 Core owns:
-- whether plan is needed
-- how tasks are selected
-- what counts as task success
-- when retry happens
-- when repair happens
-- when replan happens
-- when run becomes `done`
-- when run becomes `failed`
+#### `profiles`
 
-### 6.2 Shell owns:
-- how plan proposals are obtained
-- how action proposals are obtained
-- how actions are executed
-- how context is built
-- how LLM is called
-- how tools are routed
-- how sandbox is used
-- how raw results are normalized
+Own runtime constraints and scenario-facing configuration boundaries.
+Profiles should influence assembly, permissions, and workflow policy, but should not redefine Core semantics.
 
----
+### 2.3 Dependency Direction
 
-## 7. Required Shared Protocol Objects
+The intended direction is:
 
-At the Core/Shell boundary, use normalized protocol objects only.
+- public entry comes in through `app`
+- `app` drives runtime through `shell`
+- `shell` interacts with `core`
+- all layers share `protocol` objects
+- `profiles` constrain runtime mode and scenario shape without becoming semantic logic containers
 
-Canonical shared objects include:
+### 2.4 Architectural Status
 
-- `Plan`
-- `Milestone`
-- `Task`
-- `SuccessCriterion`
-- `Action`
-- `ActionResult`
-- `Evidence`
-- `FailureSignal`
-- `ContextPacket`
-- `EffectRequest`
-- `EffectResult`
-- `PlanPatch`
-- `ReviewRequest`
-- `ReviewResult`
+The repository already has enough structural clarity to support the next phase of work.
 
-### Important rules
-- All boundary objects must be serializable.
-- Provider-native responses must be normalized before crossing the boundary.
-- Sandbox-native handles must never cross the boundary.
-- Tool-calling payloads must be normalized into `Action[]`.
+The current primary need is **not** more boundary splitting.
+The current primary need is:
+
+- semantic closure
+- scenario closure
+- controlled execution capability
+
+### 2.5 Current Architectural Judgment
+
+When making decisions, assume:
+
+- `app` should stay thin
+- `core` should stay semantically central
+- `shell` should grow realistic execution capability
+- `profiles` should become scenario-shaping constraints, not alternate semantics
 
 ---
 
-## 8. Guidance for Modifying Core Code
+## 3. Working Principles
 
-When modifying Core code, preserve the following properties:
+### 3.1 Prefer Semantic Progress Over Structural Splitting
 
-### 8.1 Core is a state machine
-Core code should read like state transition logic, not like integration code.
+Do not introduce new layers, wrappers, or abstraction boundaries unless they clearly improve semantic clarity, execution control, or maintainability.
 
-### 8.2 Core should stay deterministic
-Do not embed provider behavior assumptions into Core decision logic.
+Structural change is justified when it:
 
-### 8.3 Core should remain profile-agnostic
-Do not add profile-specific branches into Core transitions.
+- removes real confusion
+- reduces semantic leakage
+- improves scenario expression
+- improves execution governance
 
-### 8.4 Core should not directly perform effects
-If Core appears to “call” something external, that is a design smell unless it is emitting an `EffectRequest`.
+Structural change is not justified when it only creates cleaner-looking boundaries without meaningful behavioral gain.
 
-### 8.5 Use single-source-of-truth state
+### 3.2 Prefer Narrow Real Capability Over Broad Generalization
+
+When choosing between:
+
+- adding one narrow real capability, or
+- adding a broad abstract capability framework
+
+prefer the narrow real capability.
+
+At the current stage, real constrained execution is more valuable than abstract extensibility.
+
+### 3.3 Keep Core Semantically Closed
+
+Do not move provider-specific logic, environment-specific execution rules, sandbox behavior, or policy plumbing into Core unless there is a very strong semantic reason.
+
+Core should own runtime meaning, not external system details.
+
+### 3.4 Keep Shell Operational, Not Semantic
+
+Shell should execute, normalize, trace, and govern requests.
+Shell should not silently become the place where task meaning is invented.
+
+If a change affects:
+
+- task success meaning
+- task failure meaning
+- retry / repair / replan meaning
+- review meaning
+- terminal state meaning
+
+the change likely belongs in Core, not only in Shell.
+
+### 3.5 Keep Profile Scenario-Oriented
+
+Profile should express things such as:
+
+- whether execution is allowed
+- what execution modes are permitted
+- whether review is required
+- what workflow constraints apply
+- what scenario contract is active
+
+Profile should not become a free-form bag of semantics.
+
+### 3.6 Prefer Explicit Contracts
+
+When introducing a new runtime behavior, prefer explicit contracts over hidden conventions.
+
+Examples include:
+
+- task outcome states
+- review request / result contracts
+- artifact acceptance rules
+- executor result normalization
+- scenario workflow boundaries
+
+---
+
+## 4. How to Start Work
+
+### 4.1 Required Reading Order
+
+Before starting meaningful work:
+
+1. read `AGENTS.md`
+2. read `ROADMAP.md`
+3. read `WORKLOG.md`
+
+Do not start from local code changes alone if the work depends on current project direction.
+
+### 4.2 First Question to Ask
+
+Before making changes, identify which of the following the task belongs to:
+
+- semantic closure
+- scenario contract definition
+- shell execution capability
+- governance / observability
+- documentation alignment
+- test strengthening
+
+### 4.3 Default Starting Assumption
+
+Unless explicitly recorded otherwise, assume the current highest-value direction is:
+
+**Phase 1 — Core semantic closure**
+
+### 4.4 Use Existing Structure First
+
+Before creating new files, new layers, or new abstraction surfaces, check whether the intended change can be expressed cleanly within the current structure.
+
+---
+
+## 5. How to Propose and Make Changes
+
+### 5.1 Make Small, Legible Moves
+
+Prefer small, focused, explainable changes over large multi-purpose edits.
+
+A good change usually has:
+
+- one main purpose
+- clear placement in the architecture
+- clear relationship to current roadmap priorities
+
+### 5.2 Avoid Premature Framework Building
+
+Do not introduce “future-ready” frameworks unless the current repository already has at least one real use path that justifies them.
+
+### 5.3 Keep the Main Path Understandable
+
+Each meaningful change should preserve or improve the readability of the main runtime path.
+
+The key runtime flow should remain easy to explain in terms of:
+
+- entry
+- state progression
+- request generation
+- request execution
+- result application
+- stopping conditions
+
+### 5.4 Preserve Layer Intent
+
+When adding code, verify that the change preserves the existing layer role.
+
+Examples:
+
+- entry-point convenience belongs in `app`
+- semantic transitions belong in `core`
+- execution bridging belongs in `shell`
+- shape definitions belong in `protocol`
+- runtime mode constraints belong in `profiles`
+
+### 5.5 Explain Semantic Changes Explicitly
+
+When a change modifies runtime meaning, the change should be reflected in both code and documentation.
+Do not allow semantic drift to exist only in implementation details.
+
+---
+
+## 6. Code Guidelines
+
+### 6.1 Prefer Readability Over Cleverness
+
+Favor direct, explicit code over clever compressed logic.
+
+### 6.2 Prefer Narrow Interfaces
+
+New interfaces should be as small as possible while still being useful.
+
+### 6.3 Keep Naming Aligned With Runtime Meaning
+
+Names should reflect runtime roles and contracts clearly.
+Avoid vague names that hide whether something is:
+
+- a request
+- a result
+- a state transition
+- a review artifact
+- an execution artifact
+- a scenario constraint
+
+### 6.4 Avoid Semantic Duplication
+
+Do not define the same behavioral meaning in multiple places.
+If task failure semantics live in Core, Shell and Profile should consume or constrain them, not re-invent them.
+
+### 6.5 Keep Placeholder Logic Honest
+
+If something is a placeholder, keep it clearly marked as such in naming, docs, or tests.
+Do not let placeholder behavior masquerade as finished behavior.
+
+---
+
+## 7. Test Guidelines
+
+### 7.1 Current Priority: Semantic Tests
+
+At the current stage, prioritize tests that validate runtime meaning, not only structural call flow.
+
+Examples of high-value tests now include:
+
+- task success transitions
+- task failure transitions
+- terminal failure handling
+- retry / repair / replan decisions
+- review-related state progression
+- request/result effect on runtime state
+
+### 7.2 Structural Tests Are Not Enough
+
+Structural tests remain useful, but they are no longer sufficient as the main form of confidence.
+
+### 7.3 Test the Main Runtime Story
+
+Prefer tests that help answer:
+
+- what happens after a successful effect result?
+- what happens after a failed effect result?
+- what causes a run to stop?
+- what changes when review is required?
+- what outcome is expected from the current profile?
+
+### 7.4 Keep Tests Aligned With Current Phase
+
+When deciding what test to add next, consult `ROADMAP.md`.
+The test suite should reflect the current phase of the project.
+
+---
+
+## 8. Documentation Rules
+
+### 8.1 Document Roles
+
+The repository uses three primary coordination documents:
+
+- `AGENTS.md` — long-lived collaboration rules
+- `ROADMAP.md` — staged direction and priorities
+- `WORKLOG.md` — current state and execution memory
+
+### 8.2 What Goes Where
+
+#### Put information in `AGENTS.md` when it is:
+
+- a stable collaboration rule
+- a repository-wide principle
+- a long-lived architectural constraint
+- a maintenance rule for contributors and agents
+
+#### Put information in `ROADMAP.md` when it is:
+
+- a phase definition
+- a priority judgment
+- a sequencing decision
+- a milestone or completion rule
+- an explicit deferral or non-goal
+
+#### Put information in `WORKLOG.md` when it is:
+
+- a recent implementation change
+- a notable design decision
+- a blocker
+- a handoff note
+- the current best next step
+- a temporary but important repository insight
+
+### 8.3 Keep Documents Distinct
+
+Do not let the three documents collapse into each other.
+
 In particular:
-- completed task tracking should not be duplicated inconsistently
-- task lifecycle state should be explicit
-- plan version updates should be atomic with plan mutation
 
-### 8.6 Preserve semantic distinctions
-Keep these distinct:
-- task verification
-- milestone acceptance
-- goal acceptance
-- retry
-- repair
-- replan
-- terminal failure
+- do not turn `AGENTS.md` into a diary
+- do not turn `ROADMAP.md` into a task log
+- do not turn `WORKLOG.md` into a policy handbook
+
+### 8.4 Update Documentation When Meaning Changes
+
+When the repository gains a meaningful new capability, semantic rule, scenario contract, or execution path, documentation must be updated accordingly.
 
 ---
 
-## 9. Guidance for Modifying Shell Code
+## 9. Documentation Sync After Task Completion
 
-When modifying Shell code, preserve the following properties:
+### 9.1 General Rule
 
-### 9.1 Keep provider logic inside Shell
-Provider-specific message formats, tool-calling protocols, and raw response parsing stay in Shell.
+Completing a meaningful task includes aligning the relevant project documents with the new project state.
 
-### 9.2 Context engineering belongs to Shell
-Context building happens before message assembly and should remain phase-aware.
+Code-only completion is usually incomplete completion.
 
-### 9.3 Middleware is allowed only as Shell governance
-Middleware may handle:
-- logging
-- metrics
-- tracing
-- safety checks
-- budget checks
-- normalization assistance
-- audit augmentation
+### 9.2 WORKLOG Update Rule
 
-Middleware must **not** redefine Core semantics.
+Update `WORKLOG.md` when a task:
 
-### 9.4 Sandbox remains a Shell execution concern
-Do not expose sandbox implementation details to the Core.
+- changes implementation state materially
+- introduces a notable design or semantic decision
+- reveals a blocker
+- changes the next likely step
+- changes the current understanding of repository status
 
-### 9.5 Normalize before returning
-Every externally sourced result must be normalized into boundary-safe protocol objects.
+### 9.3 ROADMAP Update Rule
 
----
+Update `ROADMAP.md` when a task changes:
 
-## 10. Guidance for Modifying Profile Code
+- phase status
+- milestone status
+- sequencing
+- priorities
+- scope boundaries
+- explicit deferrals
+- the judgment of what should happen next
 
-When modifying or introducing Profile code:
+### 9.4 AGENTS Update Rule
 
-### 10.1 Think declaratively
-Profiles should describe:
-- enabled handlers
-- capability bindings
-- policies
-- presets
-- constraints
+Update `AGENTS.md` only when a task changes:
 
-### 10.2 Do not encode Core semantics
-Profiles must not define:
-- Core transitions
-- task completion semantics
-- terminal run semantics
-- failure class semantics
+- long-lived collaboration rules
+- stable architectural principles
+- repository-wide working conventions
+- contributor expectations
 
-### 10.3 Profiles configure Shell assembly only
-Treat Profile as shell assembly input, not semantic runtime code.
+### 9.5 Completion Standard
+
+A meaningful task is not fully complete until the following are aligned:
+
+- code
+- validation or tests, when appropriate
+- relevant documentation
+
+If documentation is intentionally not updated, the reason should be explicit.
 
 ---
 
-## 11. File and Module Organization Guidance
+## 10. Current Working Mode
 
-Use naming and organization that makes architectural boundaries obvious.
+### 10.1 Current Development Focus
 
-### Recommended conceptual areas
-- `core/` for closed semantic runtime
-- `shell/` for effect handling and integration
-- `profiles/` for scenario-specific shell configuration
-- `protocol/` or equivalent for shared normalized boundary schemas
-- `docs/` for architecture documents
+The current repository focus is:
 
-### Naming guidance
-Prefer names such as:
-- `effect_request`
-- `effect_result`
-- `context_engine`
-- `result_normalizer`
-- `action_executor`
-- `plan_patch`
+**move from structural baseline toward semantic closure**
 
-Avoid ambiguous names that mix layers, such as:
-- `agent_tool_runtime_core`
-- `llm_state_machine`
-- `profile_transition_logic`
+### 10.2 Preferred Change Shape
 
----
+Preferred changes at this stage are:
 
-## 12. Code Generation Constraints
+- semantic clarification in Core
+- narrow real capability in Shell
+- concrete scenario expression in Profile
+- clearer request/result contracts
+- better semantic tests
 
-When generating or editing code, follow these rules:
+### 10.3 Current Anti-Patterns
 
-1. Do not collapse Core and Shell into one module.
-2. Do not introduce direct provider SDK objects into Core types.
-3. Do not use raw tool-call payloads as Core actions.
-4. Do not add middleware hooks that change Core transitions.
-5. Do not treat Profile as a runtime semantic plug-in to the Core.
-6. Do not redefine existing canonical terms with new meanings.
-7. Prefer explicit protocol objects over loosely typed dictionaries when possible.
-8. Prefer schema validation at boundaries.
-9. Preserve auditability and traceability.
-10. Preserve serializability of boundary objects.
+Avoid the following unless there is a very strong reason:
+
+- more structural splitting as the main form of progress
+- large provider abstraction too early
+- profile expansion without real consumption
+- adding many effect kinds without real execution paths
+- hiding semantic changes inside shell-only logic
+- writing only structural tests while semantic gaps remain open
 
 ---
 
-## 13. When Unsure
+## 11. Handoff Expectations
 
-If a task is ambiguous, follow these priorities:
+### 11.1 Leave the Next Step Visible
 
-### Priority 1
-Preserve the documented architecture.
+A contributor should try to leave the project in a state where the next likely step is easy to identify.
 
-### Priority 2
-Keep Core semantically closed.
+### 11.2 Record Important Judgments
 
-### Priority 3
-Move provider/tool/sandbox complexity into Shell.
+If a change involves an important architectural or semantic judgment, record it in `WORKLOG.md`.
 
-### Priority 4
-Use normalized protocol objects instead of provider-native objects.
+### 11.3 Keep the Repository Resumable
 
-### Priority 5
-Prefer explicitness over cleverness.
-
-If a change would improve convenience but weaken boundary clarity, choose boundary clarity.
+The repository should be maintainable not only by the original author, but also by a future human contributor or agent resuming work from the current state.
 
 ---
 
-## 14. What Good Changes Look Like
+## 12. Maintenance Rules
 
-Examples of good changes:
+### 12.1 Keep AGENTS Stable
 
-- introducing a new normalized `Action` kind without exposing provider-native tool payloads
-- adding a new Shell handler that still returns canonical `EffectResult`
-- improving Context Engine phase routing
-- tightening schema validation for boundary objects
-- introducing a new Profile that binds different capabilities without changing Core semantics
-- improving sandbox execution policy inside Shell
+`AGENTS.md` should change less often than `ROADMAP.md` and much less often than `WORKLOG.md`.
 
-Examples of bad changes:
+### 12.2 Revise Only for Lasting Reasons
 
-- letting Core import LLM message types
-- letting Profile redefine `done`
-- letting middleware override verification outcome
-- returning raw tool-calling objects to Core
-- embedding sandbox execution details into Core state machine logic
+Only revise this file when the change reflects a durable rule or a lasting project-wide judgment.
 
----
+### 12.3 Resolve Conflicts by Document Role
 
-## 15. Recommended Workflow for AI Coding Agents
+If two documents appear to conflict, prefer interpretation by role:
 
-When working on a task in this repository:
+- `AGENTS.md` defines how collaboration should work
+- `ROADMAP.md` defines what is currently prioritized
+- `WORKLOG.md` defines what has recently happened and what is currently active
 
-1. Identify whether the task belongs to Core, Shell, Profile, or Protocol.
-2. Read the relevant architecture document before making structural edits.
-3. Confirm the boundary objects affected.
-4. Implement the smallest change that preserves architecture invariants.
-5. Keep naming aligned with the glossary.
-6. If introducing a new concept, place it in the correct layer first.
-7. Update docs only when the task explicitly requires architectural changes.
+### 12.4 Keep the Stack Coherent
 
----
-
-## 16. Final Rule
-
-This repository is not organized around “whatever helps the agent run.”  
-It is organized around **clear semantic boundaries**.
-
-The most important rule is:
-
-> Keep semantics in the Core, effects in the Shell, and scenario assembly in the Profile.
-
-Any generated code that violates this rule should be considered architecturally incorrect even if it appears to work.
+Whenever one of the three documents changes significantly, verify that the other two still remain coherent with it.
