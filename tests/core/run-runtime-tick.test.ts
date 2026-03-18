@@ -35,6 +35,7 @@ describe("runRuntimeTick", () => {
       progression: "continueable",
       requestKind: "execute_actions"
     });
+    expect(tick.tickSummary.orchestration).toBeUndefined();
     expect(tick.state.failure).toBeUndefined();
   });
 
@@ -61,12 +62,13 @@ describe("runRuntimeTick", () => {
       resultKind: "action_results",
       requestKind: "execute_actions"
     });
+    expect(tick.tickSummary.orchestration).toBeUndefined();
     expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
       tick.tickSummary
     );
   });
 
-  it("keeps non-terminal action failure continue-able while preserving current task", () => {
+  it("keeps non-terminal action failure on hold-because-non-terminal-failure", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const failedResult: EffectResult = {
       kind: "action_results",
@@ -93,12 +95,12 @@ describe("runRuntimeTick", () => {
         terminal: false
       }
     });
-    expect(tick.request).toBeDefined();
-    expect(tick.request?.kind).toBe("execute_actions");
+    expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
-      progression: "continueable",
+      progression: "hold_current_task",
+      holdReason: "non_terminal_failure",
+      orchestration: undefined,
       resultKind: "action_results",
-      requestKind: "execute_actions",
       failureSummary: "lint failed"
     });
     expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
@@ -136,9 +138,11 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "terminal",
+      orchestration: undefined,
       resultKind: "action_results",
       failureSummary: "fatal action failure"
     });
+    expect(tick.tickSummary.holdReason).toBeUndefined();
     expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
       tick.tickSummary
     );
@@ -170,12 +174,14 @@ describe("runRuntimeTick", () => {
       resultKind: "review_result",
       requestKind: "execute_actions"
     });
+    expect(tick.tickSummary.holdReason).toBeUndefined();
+    expect(tick.tickSummary.orchestration).toBeUndefined();
     expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
       tick.tickSummary
     );
   });
 
-  it("keeps review repair path on hold/current-task without next request", () => {
+  it("enters waiting-for-repair orchestration and does not emit next request", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewRepair: EffectResult = {
       kind: "review_result",
@@ -201,6 +207,8 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      holdReason: "repair",
+      orchestration: "waiting_for_repair",
       resultKind: "review_result",
       failureSummary: "review_result requested repair"
     });
@@ -209,7 +217,7 @@ describe("runRuntimeTick", () => {
     );
   });
 
-  it("keeps review replan path on hold/current-task without next request", () => {
+  it("enters waiting-for-replan orchestration and does not emit next request", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewReplan: EffectResult = {
       kind: "review_result",
@@ -235,6 +243,8 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      holdReason: "replan",
+      orchestration: "waiting_for_replan",
       resultKind: "review_result",
       failureSummary: "review_result requested replan"
     });
@@ -243,7 +253,7 @@ describe("runRuntimeTick", () => {
     );
   });
 
-  it("treats review stop path as terminal and blocks further request generation", () => {
+  it("treats review stop path as review-rejected run-level terminal and blocks further request generation", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewStop: EffectResult = {
       kind: "review_result",
@@ -269,11 +279,67 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "terminal",
+      orchestration: undefined,
       resultKind: "review_result",
-      failureSummary: "review_result requested stop"
+      failureSummary: "review_result requested stop (review_rejected_run_terminal)"
     });
+    expect(tick.tickSummary.holdReason).toBeUndefined();
     expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
       tick.tickSummary
+    );
+  });
+
+  it("keeps waiting-for-repair orchestration on next tick without incoming result", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewRepair: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "repair"
+      }
+    };
+
+    const firstTick = runRuntimeTick(runningState, minimalPlan, minimalTasks, reviewRepair);
+    const secondTick = runRuntimeTick(firstTick.state, minimalPlan, minimalTasks, undefined);
+
+    expect(secondTick.request).toBeUndefined();
+    expect(secondTick.tickSummary).toMatchObject({
+      progression: "hold_current_task",
+      holdReason: "repair",
+      orchestration: "waiting_for_repair",
+      resultKind: "review_result",
+      failureSummary: "review_result requested repair"
+    });
+    expect((secondTick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      secondTick.tickSummary
+    );
+  });
+
+  it("keeps waiting-for-replan orchestration on next tick without incoming result", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewReplan: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "replan"
+      }
+    };
+
+    const firstTick = runRuntimeTick(runningState, minimalPlan, minimalTasks, reviewReplan);
+    const secondTick = runRuntimeTick(firstTick.state, minimalPlan, minimalTasks, undefined);
+
+    expect(secondTick.request).toBeUndefined();
+    expect(secondTick.tickSummary).toMatchObject({
+      progression: "hold_current_task",
+      holdReason: "replan",
+      orchestration: "waiting_for_replan",
+      resultKind: "review_result",
+      failureSummary: "review_result requested replan"
+    });
+    expect((secondTick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      secondTick.tickSummary
     );
   });
 });

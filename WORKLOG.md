@@ -268,3 +268,29 @@ Recommended entry structure:
 * runtime now has a single minimal Core-shared observability slot instead of tick-local-only summary logic
 * step/result/failure/progression are visible through a stable serialized summary, with tick adding request-kind context when available
 * local full test suite remains green (`17/17` files, `140/140` tests)
+
+---
+
+## 2026-03-18 — review-stop boundary and waiting orchestration semantics tightened
+
+### Changed
+
+* clarified `review_result.stop` semantics as review-rejected run-level terminal across `apply-effect-result`, step summary, and tick summary paths
+* upgraded core runtime summary to express minimal orchestration waiting state for review outcomes (`waiting_for_repair`, `waiting_for_replan`)
+* updated `prepare-runtime-step-request` to explicitly block next request while in waiting orchestration state
+* updated `run-runtime-tick` to reuse step-written waiting state and keep progression/request behavior aligned with shared runtime summary
+* updated core tests to assert explicit continue/hold/terminal boundaries and waiting-state visibility in shared `runtimeSummary`
+
+### Scope
+
+* core effect-result semantics
+* core step/tick progression policy
+* core request preparation policy
+* semantic transition and summary consistency tests
+
+### Result
+
+* stop is now consistently modeled as review-rejected run-level terminal in code and tests
+* repair/replan now act as minimal orchestration entry points with explicit waiting semantics instead of hold-only labels
+* runtime summary now shows not only hold reason but also waiting orchestration state for repair/replan
+* local full test suite remains green (`17/17` files, `142/142` tests)

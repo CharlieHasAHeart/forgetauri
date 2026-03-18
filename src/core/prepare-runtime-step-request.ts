@@ -9,6 +9,30 @@ import {
 import { prepareEffectCycle } from "./run-effect-cycle.js";
 import { isAgentStateTerminal } from "./terminal.js";
 
+export type RuntimeStepRequestOrchestrationState =
+  | "waiting_for_repair"
+  | "waiting_for_replan";
+
+export function readRequestOrchestrationState(
+  state: AgentState
+): RuntimeStepRequestOrchestrationState | undefined {
+  if (typeof state.failure !== "object" || state.failure === null) {
+    return undefined;
+  }
+
+  const runtimeSummary = Reflect.get(state.failure, "runtimeSummary");
+  if (typeof runtimeSummary !== "object" || runtimeSummary === null) {
+    return undefined;
+  }
+
+  const orchestration = Reflect.get(runtimeSummary, "orchestration");
+  if (orchestration === "waiting_for_repair" || orchestration === "waiting_for_replan") {
+    return orchestration;
+  }
+
+  return undefined;
+}
+
 export function canPrepareRuntimeStepRequestAfterResult(
   result: EffectResult | undefined
 ): boolean {
@@ -54,6 +78,12 @@ export function prepareRuntimeStepRequest(
   result?: EffectResult
 ): EffectRequest | undefined {
   if (isAgentStateTerminal(state)) {
+    return undefined;
+  }
+
+  // Minimal orchestration policy: when runtime is explicitly waiting for repair/replan,
+  // do not emit a next execution request until a new result changes the waiting state.
+  if (readRequestOrchestrationState(state)) {
     return undefined;
   }
 

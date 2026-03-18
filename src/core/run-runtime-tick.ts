@@ -33,6 +33,8 @@ export type RuntimeTickProgression = RuntimeStepProgression;
 
 export interface RuntimeTickSummary {
   progression: RuntimeTickProgression;
+  holdReason?: string;
+  orchestration?: string;
   resultKind?: string;
   requestKind?: string;
   failureSummary?: string;
@@ -52,6 +54,15 @@ export function resolveRuntimeTickProgression(
 ): RuntimeTickProgression {
   if (isAgentStateTerminal(state)) {
     return "terminal";
+  }
+
+  const shared = readCoreRuntimeSummary(state);
+  if (
+    !result &&
+    (shared?.orchestration === "waiting_for_repair" ||
+      shared?.orchestration === "waiting_for_replan")
+  ) {
+    return "hold_current_task";
   }
 
   return resolveRuntimeStepProgression(result);
@@ -97,6 +108,8 @@ export function buildRuntimeTickSummary(
 
   return {
     progression: shared?.progression ?? progression,
+    holdReason: shared?.holdReason,
+    orchestration: shared?.orchestration,
     resultKind: shared?.resultKind,
     requestKind: request?.kind ?? shared?.requestKind,
     failureSummary: shared?.failureSummary ?? extractRuntimeTickFailureSummary(state, result)
@@ -115,6 +128,8 @@ export function applyRuntimeTickRequestSummary(
 
   const summary: CoreRuntimeSummary = {
     progression: shared?.progression ?? progression,
+    holdReason: shared?.holdReason,
+    orchestration: shared?.orchestration,
     resultKind: shared?.resultKind,
     requestKind: request?.kind,
     failureSummary: shared?.failureSummary

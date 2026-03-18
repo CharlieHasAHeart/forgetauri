@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { type EffectResult } from "../../src/protocol/index.ts";
-import { applyEffectResult } from "../../src/core/apply-effect-result.ts";
+import {
+  applyEffectResult,
+  resolveReviewRuntimeSignal
+} from "../../src/core/apply-effect-result.ts";
 import { makeAgentState } from "../shared/minimal-runtime-fixtures.ts";
 
 describe("applyEffectResult", () => {
@@ -79,7 +82,7 @@ describe("applyEffectResult", () => {
     });
   });
 
-  it("handles review_result continue by allowing progression", () => {
+  it("handles review_result continue as explicit continue runtime signal", () => {
     const state = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const result: EffectResult = {
       kind: "review_result",
@@ -91,15 +94,17 @@ describe("applyEffectResult", () => {
     };
 
     const next = applyEffectResult(state, result);
+    const signal = resolveReviewRuntimeSignal(result);
 
     expect(next).toMatchObject({
       status: "running",
       currentTaskId: undefined,
       lastEffectResultKind: "review_result"
     });
+    expect(signal).toBe("continue");
   });
 
-  it("handles review_result repair without collapsing to success", () => {
+  it("handles review_result repair as explicit hold-for-repair runtime signal", () => {
     const state = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const result: EffectResult = {
       kind: "review_result",
@@ -117,6 +122,7 @@ describe("applyEffectResult", () => {
     };
 
     const next = applyEffectResult(state, result);
+    const signal = resolveReviewRuntimeSignal(result);
 
     expect(next).toMatchObject({
       status: "running",
@@ -129,9 +135,10 @@ describe("applyEffectResult", () => {
         summary: "repair requested"
       }
     });
+    expect(signal).toBe("hold_for_repair");
   });
 
-  it("handles review_result replan without collapsing to success", () => {
+  it("handles review_result replan as explicit hold-for-replan runtime signal", () => {
     const state = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const result: EffectResult = {
       kind: "review_result",
@@ -149,6 +156,7 @@ describe("applyEffectResult", () => {
     };
 
     const next = applyEffectResult(state, result);
+    const signal = resolveReviewRuntimeSignal(result);
 
     expect(next).toMatchObject({
       status: "running",
@@ -161,9 +169,10 @@ describe("applyEffectResult", () => {
         summary: "replan requested"
       }
     });
+    expect(signal).toBe("hold_for_replan");
   });
 
-  it("handles review_result stop as explicit terminal-style failure path", () => {
+  it("handles review_result stop as review-rejected run-level terminal runtime signal", () => {
     const state = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const result: EffectResult = {
       kind: "review_result",
@@ -181,6 +190,7 @@ describe("applyEffectResult", () => {
     };
 
     const next = applyEffectResult(state, result);
+    const signal = resolveReviewRuntimeSignal(result);
 
     expect(next).toMatchObject({
       status: "failed",
@@ -193,5 +203,6 @@ describe("applyEffectResult", () => {
         summary: "stop requested"
       }
     });
+    expect(signal).toBe("review_rejected_run_terminal");
   });
 });

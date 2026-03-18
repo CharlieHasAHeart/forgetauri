@@ -46,6 +46,8 @@ describe("applyRuntimeStepResult", () => {
       failure: {
         runtimeSummary: {
           progression: "continueable",
+          signal: "continue",
+          orchestration: undefined,
           resultKind: "action_results"
         }
       }
@@ -70,6 +72,8 @@ describe("applyRuntimeStepResult", () => {
       failure: {
         runtimeSummary: {
           progression: "continueable",
+          signal: "continue_after_failure",
+          orchestration: undefined,
           resultKind: "action_results",
           failureSummary: "action_results reported failure"
         }
@@ -103,7 +107,10 @@ describe("applyRuntimeStepResult", () => {
         source: "shell",
         terminal: false,
         runtimeSummary: {
-          progression: "continueable",
+          progression: "hold_current_task",
+          signal: "hold_because_non_terminal_failure",
+          holdReason: "non_terminal_failure",
+          orchestration: undefined,
           resultKind: "action_results",
           failureSummary: "tool command failed"
         }
@@ -138,6 +145,8 @@ describe("applyRuntimeStepResult", () => {
         terminal: true,
         runtimeSummary: {
           progression: "terminal",
+          signal: "terminal_failure",
+          orchestration: undefined,
           resultKind: "action_results",
           failureSummary: "terminal action failure"
         }
@@ -145,7 +154,7 @@ describe("applyRuntimeStepResult", () => {
     });
   });
 
-  it("holds current task for review_result repair as a non-terminal step path", () => {
+  it("enters waiting-for-repair minimal orchestration for review_result repair", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewRepair: EffectResult = {
       kind: "review_result",
@@ -167,6 +176,9 @@ describe("applyRuntimeStepResult", () => {
         terminal: false,
         runtimeSummary: {
           progression: "hold_current_task",
+          signal: "hold_for_repair",
+          holdReason: "repair",
+          orchestration: "waiting_for_repair",
           resultKind: "review_result",
           failureSummary: "review_result requested repair"
         }
@@ -174,7 +186,7 @@ describe("applyRuntimeStepResult", () => {
     });
   });
 
-  it("holds current task for review_result replan as a non-terminal step path", () => {
+  it("enters waiting-for-replan minimal orchestration for review_result replan", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewReplan: EffectResult = {
       kind: "review_result",
@@ -196,6 +208,9 @@ describe("applyRuntimeStepResult", () => {
         terminal: false,
         runtimeSummary: {
           progression: "hold_current_task",
+          signal: "hold_for_replan",
+          holdReason: "replan",
+          orchestration: "waiting_for_replan",
           resultKind: "review_result",
           failureSummary: "review_result requested replan"
         }
@@ -203,7 +218,7 @@ describe("applyRuntimeStepResult", () => {
     });
   });
 
-  it("returns terminal step state for review_result stop", () => {
+  it("returns run-level terminal step state for review_result stop (review-rejected)", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewStop: EffectResult = {
       kind: "review_result",
@@ -225,8 +240,10 @@ describe("applyRuntimeStepResult", () => {
         terminal: true,
         runtimeSummary: {
           progression: "terminal",
+          signal: "review_rejected_run_terminal",
+          orchestration: undefined,
           resultKind: "review_result",
-          failureSummary: "review_result requested stop"
+          failureSummary: "review_result requested stop (review_rejected_run_terminal)"
         }
       }
     });

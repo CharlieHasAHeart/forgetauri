@@ -13,6 +13,12 @@ import {
 import { isAgentStateTerminal } from "./terminal.js";
 import { cloneAgentState, transitionAgentState } from "./transition-engine.js";
 
+export type ReviewRuntimeSignal =
+  | "continue"
+  | "hold_for_repair"
+  | "hold_for_replan"
+  | "review_rejected_run_terminal";
+
 export function setLastEffectResultKind(
   state: AgentState,
   kind: string | undefined
@@ -93,16 +99,18 @@ export function buildDefaultFailureSignalForResult(
     };
   }
 
-  if (result.payload.next_action === "stop") {
+  const reviewSignal = resolveReviewRuntimeSignal(result);
+
+  if (reviewSignal === "review_rejected_run_terminal") {
     return {
       category: "review",
       source: "shell",
       terminal: true,
-      summary: "review_result requested stop"
+      summary: "review_result requested stop (review_rejected_run_terminal)"
     };
   }
 
-  if (result.payload.next_action === "repair") {
+  if (reviewSignal === "hold_for_repair") {
     return {
       category: "review",
       source: "shell",
@@ -117,6 +125,24 @@ export function buildDefaultFailureSignalForResult(
     terminal: false,
     summary: "review_result requested replan"
   };
+}
+
+export function resolveReviewRuntimeSignal(
+  result: ReviewEffectResult
+): ReviewRuntimeSignal {
+  if (result.payload.next_action === "continue") {
+    return "continue";
+  }
+
+  if (result.payload.next_action === "repair") {
+    return "hold_for_repair";
+  }
+
+  if (result.payload.next_action === "replan") {
+    return "hold_for_replan";
+  }
+
+  return "review_rejected_run_terminal";
 }
 
 export function absorbFailureSignal(
@@ -161,13 +187,13 @@ export function applyReviewEffectResult(
   result: ReviewEffectResult
 ): AgentState {
   const withKind = setLastEffectResultKind(state, result.kind);
-  const nextAction = result.payload.next_action;
+  const reviewSignal = resolveReviewRuntimeSignal(result);
 
-  if (nextAction === "continue") {
+  if (reviewSignal === "continue") {
     return clearCurrentTaskAfterEffect(withKind);
   }
 
-  if (nextAction === "repair") {
+  if (reviewSignal === "hold_for_repair") {
     const withFailure = absorbFailureSignal(withKind, result);
 
     if (hasTerminalFailureSignal(result)) {
@@ -177,7 +203,7 @@ export function applyReviewEffectResult(
     return withFailure;
   }
 
-  if (nextAction === "replan") {
+  if (reviewSignal === "hold_for_replan") {
     const withFailure = absorbFailureSignal(withKind, result);
 
     if (hasTerminalFailureSignal(result)) {
@@ -187,7 +213,7 @@ export function applyReviewEffectResult(
     return withFailure;
   }
 
-  if (nextAction === "stop") {
+  if (reviewSignal === "review_rejected_run_terminal") {
     const withFailure = absorbFailureSignal(withKind, result);
     return transitionAgentState(withFailure, "failed");
   }
