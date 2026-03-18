@@ -152,3 +152,24 @@ Recommended entry structure:
 
 * review-related result flow now has a clearer protocol contract for next-step runtime integration
 * architecture docs are better aligned with robust runtime semantics and constraint-oriented Profile governance
+
+---
+
+## 2026-03-18 — core effect-result absorption refined by result meaning
+
+### Changed
+
+* updated `src/core/apply-effect-result.ts` to absorb `EffectResult` by result meaning instead of only success/failure blanket handling
+* distinguished `action_results` success/failure behavior from `review_result` behavior
+* wired `review_result.payload.next_action` handling for `continue`, `repair`, `replan`, and `stop`
+
+### Scope
+
+* core runtime semantics
+* effect result absorption path
+
+### Result
+
+* success no longer always clears task in every result kind
+* failure no longer always forces run-level `failed`
+* `lastEffectResultKind` remains recorded across handled branches

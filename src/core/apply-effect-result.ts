@@ -2,8 +2,10 @@ import {
   isEffectResult,
   isFailedEffectResult,
   isSuccessfulEffectResult,
+  type ActionResultsEffectResult,
   type AgentState,
-  type EffectResult
+  type EffectResult,
+  type ReviewEffectResult
 } from "../protocol/index.js";
 import { isAgentStateTerminal } from "./terminal.js";
 import { cloneAgentState, transitionAgentState } from "./transition-engine.js";
@@ -19,20 +21,73 @@ export function clearCurrentTaskAfterEffect(state: AgentState): AgentState {
   return { ...state, currentTaskId: undefined };
 }
 
+export function applyActionResultsEffectResult(
+  state: AgentState,
+  result: ActionResultsEffectResult
+): AgentState {
+  const withKind = setLastEffectResultKind(state, result.kind);
+
+  if (isSuccessfulEffectResult(result)) {
+    return clearCurrentTaskAfterEffect(withKind);
+  }
+
+  return withKind;
+}
+
+export function applyReviewEffectResult(
+  state: AgentState,
+  result: ReviewEffectResult
+): AgentState {
+  const withKind = setLastEffectResultKind(state, result.kind);
+  const nextAction = result.payload.next_action;
+
+  if (nextAction === "continue") {
+    return clearCurrentTaskAfterEffect(withKind);
+  }
+
+  if (nextAction === "repair") {
+    return withKind;
+  }
+
+  if (nextAction === "replan") {
+    return withKind;
+  }
+
+  if (nextAction === "stop") {
+    return transitionAgentState(withKind, "failed");
+  }
+
+  return withKind;
+}
+
 export function applySuccessfulEffectResult(
   state: AgentState,
   result: EffectResult
 ): AgentState {
-  const withKind = setLastEffectResultKind(state, result.kind);
-  return clearCurrentTaskAfterEffect(withKind);
+  if (result.kind === "action_results") {
+    return applyActionResultsEffectResult(state, result);
+  }
+
+  if (result.kind === "review_result") {
+    return applyReviewEffectResult(state, result);
+  }
+
+  return setLastEffectResultKind(state, result.kind);
 }
 
 export function applyFailedEffectResult(
   state: AgentState,
   result: EffectResult
 ): AgentState {
-  const withKind = setLastEffectResultKind(state, result.kind);
-  return transitionAgentState(withKind, "failed");
+  if (result.kind === "action_results") {
+    return applyActionResultsEffectResult(state, result);
+  }
+
+  if (result.kind === "review_result") {
+    return applyReviewEffectResult(state, result);
+  }
+
+  return setLastEffectResultKind(state, result.kind);
 }
 
 export function applyEffectResult(
