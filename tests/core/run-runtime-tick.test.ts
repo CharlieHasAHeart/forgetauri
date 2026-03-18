@@ -50,7 +50,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request?.kind).toBe("execute_actions");
   });
 
-  it("consumes failed incoming result and does not produce request", () => {
+  it("consumes failed incoming action_results and keeps run progressing", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const failedResult: EffectResult = {
       kind: "action_results",
@@ -62,9 +62,11 @@ describe("runRuntimeTick", () => {
     const tick = runRuntimeTick(runningState, minimalPlan, minimalTasks, failedResult);
 
     expect(tick.state).toMatchObject({
-      status: "failed",
+      status: "running",
+      currentTaskId: "task-1",
       lastEffectResultKind: "action_results"
     });
-    expect(tick.request).toBeUndefined();
+    expect(tick.request).toBeDefined();
+    expect(tick.request?.kind).toBe("execute_actions");
   });
 });

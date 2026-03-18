@@ -173,3 +173,28 @@ Recommended entry structure:
 * success no longer always clears task in every result kind
 * failure no longer always forces run-level `failed`
 * `lastEffectResultKind` remains recorded across handled branches
+
+---
+
+## 2026-03-18 — core/shell effect-result semantics and tests converged
+
+### Changed
+
+* refined `src/core/apply-effect-result.ts` to absorb effect results by kind/meaning and fixed the TypeScript narrowing issue in fallback branches
+* made shell action result generation protocol-conformant in `src/shell/build-action-result.ts` (status/actionName/output/errorMessage)
+* made `src/shell/build-effect-result-from-actions.ts` aggregate success from protocol `ActionResult.status` via `isSuccessfulActionResult`
+* aligned `src/shell/build-run-review-effect-result.ts` with protocol review payload contract (`decision`, `next_action`, optional `summary`)
+* added `tests/core/apply-effect-result.test.ts` and updated related core/shell tests to match the new semantics
+* installed project dependencies and generated `package-lock.json` to enable local vitest execution
+
+### Scope
+
+* core effect-result absorption semantics
+* shell protocol conformance and effect-result normalization
+* semantic transition test coverage
+
+### Result
+
+* runtime meaning now distinguishes action/review outcomes without collapsing all failures into run-level failure
+* review result path now satisfies protocol type-guards end-to-end
+* full test suite passes locally (`17/17` files, `129/129` tests)

@@ -5,8 +5,9 @@ export function buildRunReviewEffectResult(request: EffectRequest): EffectResult
     kind: "review_result",
     success: true,
     payload: {
-      accepted: true,
-      requestKind: request.kind
+      decision: "approved",
+      next_action: "continue",
+      summary: `review accepted for ${request.kind}`
     },
     context: {
       handled: true

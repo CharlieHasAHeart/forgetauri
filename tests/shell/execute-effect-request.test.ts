@@ -85,8 +85,9 @@ describe("executeEffectRequest - normal paths", () => {
     expect(result?.kind).toBe("review_result");
     expect(result?.success).toBe(true);
     expect(result?.payload).toEqual({
-      accepted: true,
-      requestKind: "run_review"
+      decision: "approved",
+      next_action: "continue",
+      summary: "review accepted for run_review"
     });
     expect(result?.context).toEqual({ handled: true });
   });
@@ -106,8 +107,9 @@ describe("executeEffectRequest - normal paths", () => {
     expect(result?.kind).toBe("review_result");
     expect(result?.success).toBe(true);
     expect(result?.payload).toEqual({
-      accepted: true,
-      requestKind: "run_review"
+      decision: "approved",
+      next_action: "continue",
+      summary: "review accepted for run_review"
     });
     expect(result?.context).toEqual({ handled: true });
   });

@@ -46,7 +46,7 @@ describe("applyRuntimeStepResult", () => {
     });
   });
 
-  it("preserves failure-path behavior for failed result", () => {
+  it("preserves failed-action path without forcing run-level failure", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const failedResult: EffectResult = {
       kind: "action_results",
@@ -58,7 +58,8 @@ describe("applyRuntimeStepResult", () => {
     const result = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, failedResult);
 
     expect(result).toMatchObject({
-      status: "failed",
+      status: "running",
+      currentTaskId: "task-1",
       lastEffectResultKind: "action_results"
     });
   });

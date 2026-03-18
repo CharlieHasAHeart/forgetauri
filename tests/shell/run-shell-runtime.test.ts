@@ -79,7 +79,7 @@ describe("run-shell-runtime", () => {
     });
   });
 
-  it("next step consumes failed incoming result and preserves current failure behavior", () => {
+  it("next step consumes failed incoming result and keeps runtime progressing", () => {
     const failedIncoming: EffectResult = {
       kind: "action_results",
       success: false,
@@ -94,11 +94,15 @@ describe("run-shell-runtime", () => {
     const step = runShellRuntimeStep(baseState, plan, tasks, failedIncoming);
 
     expect(step.tick.state).toMatchObject({
-      status: "failed",
+      status: "running",
+      currentTaskId: "task-1",
       lastEffectResultKind: "action_results"
     });
-    expect(step.tick.request).toBeUndefined();
-    expect(step.result).toBeUndefined();
+    expect(step.tick.request).toMatchObject({ kind: "execute_actions" });
+    expect(step.result).toMatchObject({
+      kind: "action_results",
+      context: { requestKind: "execute_actions", handled: true }
+    });
   });
 
   it("runShellRuntimeStep returns tick only when no request is available", () => {
@@ -204,7 +208,7 @@ describe("run-shell-runtime", () => {
     expect(loopState).toEqual(secondStep.tick.state);
   });
 
-  it("runShellRuntimeLoop stops after failed incoming result and keeps failure state", () => {
+  it("runShellRuntimeLoop continues after failed incoming result under current core semantics", () => {
     const failedIncoming: EffectResult = {
       kind: "action_results",
       success: false,
@@ -220,11 +224,12 @@ describe("run-shell-runtime", () => {
     const loopState = runShellRuntimeLoop(step.tick.state, plan, tasks, 2);
 
     expect(step.tick.state).toMatchObject({
-      status: "failed",
+      status: "running",
+      currentTaskId: "task-1",
       lastEffectResultKind: "action_results"
     });
     expect(loopState).toMatchObject({
-      status: "failed",
+      status: "running",
       lastEffectResultKind: "action_results"
     });
   });

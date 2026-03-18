@@ -2,49 +2,31 @@ import { isAction, isActionKind, type Action, type ActionResult } from "../proto
 
 export function buildAcceptedActionResult(action: Action): ActionResult {
   return {
-    actionId: Reflect.get(action, "id"),
-    kind: action.kind,
-    success: true,
-    payload: {
+    status: "succeeded",
+    actionName: action.name,
+    output: {
       accepted: true
-    },
-    context: {
-      handled: true
     }
-  } as unknown as ActionResult;
+  };
 }
 
 export function buildRejectedActionResult(action: Action): ActionResult {
   return {
-    actionId: Reflect.get(action, "id"),
-    kind: action.kind,
-    success: false,
-    payload: {
-      accepted: false,
-      reason: "unsupported_action"
-    },
-    context: {
-      handled: false
-    }
-  } as unknown as ActionResult;
+    status: "failed",
+    actionName: action.name,
+    errorMessage: "unsupported_action"
+  };
 }
 
 export function buildInvalidActionResult(
-  actionId: string | undefined,
-  kind: string | undefined
+  actionName: string | undefined,
+  reason: string | undefined
 ): ActionResult {
   return {
-    actionId: actionId ?? "unknown-action",
-    kind: kind ?? "unknown",
-    success: false,
-    payload: {
-      accepted: false,
-      reason: "invalid_action"
-    },
-    context: {
-      handled: false
-    }
-  } as unknown as ActionResult;
+    status: "failed",
+    actionName: actionName ?? "unknown-action",
+    errorMessage: reason ?? "invalid_action"
+  };
 }
 
 export function buildActionResult(action: Action | undefined): ActionResult {
@@ -53,20 +35,20 @@ export function buildActionResult(action: Action | undefined): ActionResult {
   }
 
   if (!isAction(action)) {
-    const actionId = Reflect.get(action as object, "id");
+    const actionName = Reflect.get(action as object, "name");
     const kind = Reflect.get(action as object, "kind");
 
     return buildInvalidActionResult(
-      typeof actionId === "string" ? actionId : undefined,
-      typeof kind === "string" ? kind : undefined
+      typeof actionName === "string" ? actionName : undefined,
+      typeof kind === "string" ? `invalid_action_kind:${kind}` : undefined
     );
   }
 
   if (!isActionKind(action.kind)) {
-    const actionId = Reflect.get(action, "id");
+    const actionName = Reflect.get(action, "name");
     return buildInvalidActionResult(
-      typeof actionId === "string" ? actionId : undefined,
-      action.kind
+      typeof actionName === "string" ? actionName : undefined,
+      `invalid_action_kind:${action.kind}`
     );
   }
 

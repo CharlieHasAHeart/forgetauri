@@ -16,16 +16,9 @@ describe("action-executor", () => {
     const result = executeAction(undefined);
 
     expect(result).toMatchObject({
-      actionId: "unknown-action",
-      kind: "unknown",
-      success: false,
-      payload: {
-        accepted: false,
-        reason: "invalid_action"
-      },
-      context: {
-        handled: false
-      }
+      status: "failed",
+      actionName: "unknown-action",
+      errorMessage: "invalid_action"
     });
   });
 
@@ -36,10 +29,9 @@ describe("action-executor", () => {
 
     expect(result).toEqual(buildActionResult(action));
     expect(result).toMatchObject({
-      kind: "tool",
-      success: true,
-      payload: { accepted: true },
-      context: { handled: true }
+      status: "succeeded",
+      actionName: "run_tests",
+      output: { accepted: true }
     });
   });
 

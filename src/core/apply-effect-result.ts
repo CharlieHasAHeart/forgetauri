@@ -64,6 +64,8 @@ export function applySuccessfulEffectResult(
   state: AgentState,
   result: EffectResult
 ): AgentState {
+  const withKind = setLastEffectResultKind(state, result.kind);
+
   if (result.kind === "action_results") {
     return applyActionResultsEffectResult(state, result);
   }
@@ -72,13 +74,15 @@ export function applySuccessfulEffectResult(
     return applyReviewEffectResult(state, result);
   }
 
-  return setLastEffectResultKind(state, result.kind);
+  return withKind;
 }
 
 export function applyFailedEffectResult(
   state: AgentState,
   result: EffectResult
 ): AgentState {
+  const withKind = setLastEffectResultKind(state, result.kind);
+
   if (result.kind === "action_results") {
     return applyActionResultsEffectResult(state, result);
   }
@@ -87,7 +91,7 @@ export function applyFailedEffectResult(
     return applyReviewEffectResult(state, result);
   }
 
-  return setLastEffectResultKind(state, result.kind);
+  return withKind;
 }
 
 export function applyEffectResult(

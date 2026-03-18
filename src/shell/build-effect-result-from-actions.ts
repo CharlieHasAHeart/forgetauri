@@ -1,5 +1,6 @@
 import {
   isEffectRequest,
+  isSuccessfulActionResult,
   type Action,
   type ActionResult,
   type EffectRequest,
@@ -20,7 +21,7 @@ export function areAllActionResultsSuccessful(results: ActionResult[]): boolean 
   }
 
   for (const result of results) {
-    if (Reflect.get(result, "success") !== true) {
+    if (!isSuccessfulActionResult(result)) {
       return false;
     }
   }

@@ -16,8 +16,9 @@ describe("buildRunReviewEffectResult", () => {
       kind: "review_result",
       success: true,
       payload: {
-        accepted: true,
-        requestKind: "run_review"
+        decision: "approved",
+        next_action: "continue",
+        summary: "review accepted for run_review"
       },
       context: {
         handled: true
@@ -40,8 +41,9 @@ describe("buildRunReviewEffectResult", () => {
       kind: "review_result",
       success: true,
       payload: {
-        accepted: true,
-        requestKind: "run_review"
+        decision: "approved",
+        next_action: "continue",
+        summary: "review accepted for run_review"
       },
       context: {
         handled: true
