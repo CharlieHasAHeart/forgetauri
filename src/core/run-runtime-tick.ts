@@ -6,7 +6,14 @@ import {
   type Task
 } from "../protocol/index.js";
 import { isCoreRunStable } from "./drive-core-run.js";
-import { applyRuntimeStepResult } from "./apply-runtime-step-result.js";
+import {
+  applyRuntimeStepResult,
+  readCoreRuntimeSummary,
+  resolveRuntimeStepProgression,
+  type CoreRuntimeSummary,
+  type RuntimeStepProgression,
+  writeCoreRuntimeSummary
+} from "./apply-runtime-step-result.js";
 import { canRunEffectCycle } from "./run-effect-cycle.js";
 import { prepareRuntimeStepState } from "./prepare-runtime-step-state.js";
 import {
@@ -19,6 +26,16 @@ import { cloneAgentState } from "./transition-engine.js";
 export interface RuntimeTickOutput {
   state: AgentState;
   request?: EffectRequest;
+  tickSummary: RuntimeTickSummary;
+}
+
+export type RuntimeTickProgression = RuntimeStepProgression;
+
+export interface RuntimeTickSummary {
+  progression: RuntimeTickProgression;
+  resultKind?: string;
+  requestKind?: string;
+  failureSummary?: string;
 }
 
 export function prepareRuntimeTickState(
@@ -27,6 +44,17 @@ export function prepareRuntimeTickState(
   tasks: Task[]
 ): AgentState {
   return prepareRuntimeStepState(state, plan, tasks);
+}
+
+export function resolveRuntimeTickProgression(
+  state: AgentState,
+  result: EffectResult | undefined
+): RuntimeTickProgression {
+  if (isAgentStateTerminal(state)) {
+    return "terminal";
+  }
+
+  return resolveRuntimeStepProgression(result);
 }
 
 export function prepareRuntimeTickRequest(
@@ -47,6 +75,54 @@ export function applyRuntimeTickResult(
   return applyRuntimeStepResult(state, plan, tasks, result);
 }
 
+export function extractRuntimeTickFailureSummary(
+  state: AgentState,
+  _result: EffectResult | undefined
+): string | undefined {
+  const summary = readCoreRuntimeSummary(state);
+  if (summary?.failureSummary) {
+    return summary.failureSummary;
+  }
+
+  return undefined;
+}
+
+export function buildRuntimeTickSummary(
+  state: AgentState,
+  result: EffectResult | undefined,
+  request: EffectRequest | undefined,
+  progression: RuntimeTickProgression
+): RuntimeTickSummary {
+  const shared = readCoreRuntimeSummary(state);
+
+  return {
+    progression: shared?.progression ?? progression,
+    resultKind: shared?.resultKind,
+    requestKind: request?.kind ?? shared?.requestKind,
+    failureSummary: shared?.failureSummary ?? extractRuntimeTickFailureSummary(state, result)
+  };
+}
+
+export function applyRuntimeTickRequestSummary(
+  state: AgentState,
+  request: EffectRequest | undefined,
+  progression: RuntimeTickProgression
+): AgentState {
+  const shared = readCoreRuntimeSummary(state);
+  if (!shared) {
+    return state;
+  }
+
+  const summary: CoreRuntimeSummary = {
+    progression: shared?.progression ?? progression,
+    resultKind: shared?.resultKind,
+    requestKind: request?.kind,
+    failureSummary: shared?.failureSummary
+  };
+
+  return writeCoreRuntimeSummary(state, summary);
+}
+
 export function runRuntimeTick(
   state: AgentState,
   plan: Plan | undefined,
@@ -54,19 +130,28 @@ export function runRuntimeTick(
   result: EffectResult | undefined
 ): RuntimeTickOutput {
   if (isAgentStateTerminal(state)) {
-    return { state: cloneAgentState(state) };
+    const terminalState = cloneAgentState(state);
+    return {
+      state: terminalState,
+      tickSummary: buildRuntimeTickSummary(terminalState, result, undefined, "terminal")
+    };
   }
 
   const preparedState = prepareRuntimeTickState(state, plan, tasks);
   const appliedState = applyRuntimeTickResult(preparedState, plan, tasks, result);
-  const canPrepareRequest = canPrepareRuntimeStepRequestAfterResult(result);
+  const progression = resolveRuntimeTickProgression(appliedState, result);
+  const canPrepareRequest =
+    progression === "continueable" && canPrepareRuntimeStepRequestAfterResult(result);
   const request = canPrepareRequest
     ? prepareRuntimeTickRequest(appliedState, plan, tasks, result)
     : undefined;
+  const stateWithSummary = applyRuntimeTickRequestSummary(appliedState, request, progression);
+  const tickSummary = buildRuntimeTickSummary(stateWithSummary, result, request, progression);
 
   return {
-    state: appliedState,
-    request
+    state: stateWithSummary,
+    request,
+    tickSummary
   };
 }
 

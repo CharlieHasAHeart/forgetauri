@@ -17,6 +17,9 @@ describe("runRuntimeTick", () => {
     expect(tick.state).toEqual(terminalState);
     expect(tick.state).not.toBe(terminalState);
     expect(tick.request).toBeUndefined();
+    expect(tick.tickSummary).toMatchObject({
+      progression: "terminal"
+    });
   });
 
   it("produces runnable state and request when no incoming result is provided", () => {
@@ -28,6 +31,11 @@ describe("runRuntimeTick", () => {
     });
     expect(tick.request).toBeDefined();
     expect(tick.request?.kind).toBe("execute_actions");
+    expect(tick.tickSummary).toMatchObject({
+      progression: "continueable",
+      requestKind: "execute_actions"
+    });
+    expect(tick.state.failure).toBeUndefined();
   });
 
   it("consumes successful incoming result and continues to produce request", () => {
@@ -48,13 +56,27 @@ describe("runRuntimeTick", () => {
     });
     expect(tick.request).toBeDefined();
     expect(tick.request?.kind).toBe("execute_actions");
+    expect(tick.tickSummary).toMatchObject({
+      progression: "continueable",
+      resultKind: "action_results",
+      requestKind: "execute_actions"
+    });
+    expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      tick.tickSummary
+    );
   });
 
-  it("consumes failed incoming action_results and keeps run progressing", () => {
+  it("keeps non-terminal action failure continue-able while preserving current task", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const failedResult: EffectResult = {
       kind: "action_results",
       success: false,
+      failure_signal: {
+        category: "action",
+        source: "shell",
+        terminal: false,
+        summary: "lint failed"
+      },
       payload: { reason: "failed" },
       context: { handled: false }
     };
@@ -64,13 +86,65 @@ describe("runRuntimeTick", () => {
     expect(tick.state).toMatchObject({
       status: "running",
       currentTaskId: "task-1",
-      lastEffectResultKind: "action_results"
+      lastEffectResultKind: "action_results",
+      failure: {
+        category: "action",
+        source: "shell",
+        terminal: false
+      }
     });
     expect(tick.request).toBeDefined();
     expect(tick.request?.kind).toBe("execute_actions");
+    expect(tick.tickSummary).toMatchObject({
+      progression: "continueable",
+      resultKind: "action_results",
+      requestKind: "execute_actions",
+      failureSummary: "lint failed"
+    });
+    expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      tick.tickSummary
+    );
   });
 
-  it("consumes review_result continue and allows next request", () => {
+  it("treats terminal action failure signal as terminal tick path", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const failedResult: EffectResult = {
+      kind: "action_results",
+      success: false,
+      failure_signal: {
+        category: "runtime",
+        source: "shell",
+        terminal: true,
+        summary: "fatal action failure"
+      },
+      payload: { reason: "failed" },
+      context: { handled: false }
+    };
+
+    const tick = runRuntimeTick(runningState, minimalPlan, minimalTasks, failedResult);
+
+    expect(tick.state).toMatchObject({
+      status: "failed",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "action_results",
+      failure: {
+        category: "runtime",
+        source: "shell",
+        terminal: true
+      }
+    });
+    expect(tick.request).toBeUndefined();
+    expect(tick.tickSummary).toMatchObject({
+      progression: "terminal",
+      resultKind: "action_results",
+      failureSummary: "fatal action failure"
+    });
+    expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      tick.tickSummary
+    );
+  });
+
+  it("keeps review continue path continue-able", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewContinue: EffectResult = {
       kind: "review_result",
@@ -91,9 +165,17 @@ describe("runRuntimeTick", () => {
     });
     expect(tick.request).toBeDefined();
     expect(tick.request?.kind).toBe("execute_actions");
+    expect(tick.tickSummary).toMatchObject({
+      progression: "continueable",
+      resultKind: "review_result",
+      requestKind: "execute_actions"
+    });
+    expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      tick.tickSummary
+    );
   });
 
-  it("consumes review_result repair and keeps current task without new request", () => {
+  it("keeps review repair path on hold/current-task without next request", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewRepair: EffectResult = {
       kind: "review_result",
@@ -110,12 +192,24 @@ describe("runRuntimeTick", () => {
     expect(tick.state).toMatchObject({
       status: "running",
       currentTaskId: "task-1",
-      lastEffectResultKind: "review_result"
+      lastEffectResultKind: "review_result",
+      failure: {
+        category: "review",
+        terminal: false
+      }
     });
     expect(tick.request).toBeUndefined();
+    expect(tick.tickSummary).toMatchObject({
+      progression: "hold_current_task",
+      resultKind: "review_result",
+      failureSummary: "review_result requested repair"
+    });
+    expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      tick.tickSummary
+    );
   });
 
-  it("consumes review_result replan and keeps current task without new request", () => {
+  it("keeps review replan path on hold/current-task without next request", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewReplan: EffectResult = {
       kind: "review_result",
@@ -132,12 +226,24 @@ describe("runRuntimeTick", () => {
     expect(tick.state).toMatchObject({
       status: "running",
       currentTaskId: "task-1",
-      lastEffectResultKind: "review_result"
+      lastEffectResultKind: "review_result",
+      failure: {
+        category: "review",
+        terminal: false
+      }
     });
     expect(tick.request).toBeUndefined();
+    expect(tick.tickSummary).toMatchObject({
+      progression: "hold_current_task",
+      resultKind: "review_result",
+      failureSummary: "review_result requested replan"
+    });
+    expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      tick.tickSummary
+    );
   });
 
-  it("consumes review_result stop and blocks further request generation", () => {
+  it("treats review stop path as terminal and blocks further request generation", () => {
     const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
     const reviewStop: EffectResult = {
       kind: "review_result",
@@ -154,8 +260,20 @@ describe("runRuntimeTick", () => {
     expect(tick.state).toMatchObject({
       status: "failed",
       currentTaskId: "task-1",
-      lastEffectResultKind: "review_result"
+      lastEffectResultKind: "review_result",
+      failure: {
+        category: "review",
+        terminal: true
+      }
     });
     expect(tick.request).toBeUndefined();
+    expect(tick.tickSummary).toMatchObject({
+      progression: "terminal",
+      resultKind: "review_result",
+      failureSummary: "review_result requested stop"
+    });
+    expect((tick.state.failure as { runtimeSummary?: unknown }).runtimeSummary).toMatchObject(
+      tick.tickSummary
+    );
   });
 });

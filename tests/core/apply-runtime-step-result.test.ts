@@ -42,7 +42,13 @@ describe("applyRuntimeStepResult", () => {
     expect(result).toMatchObject({
       status: "running",
       lastEffectResultKind: "action_results",
-      currentTaskId: undefined
+      currentTaskId: undefined,
+      failure: {
+        runtimeSummary: {
+          progression: "continueable",
+          resultKind: "action_results"
+        }
+      }
     });
   });
 
@@ -60,7 +66,169 @@ describe("applyRuntimeStepResult", () => {
     expect(result).toMatchObject({
       status: "running",
       currentTaskId: "task-1",
-      lastEffectResultKind: "action_results"
+      lastEffectResultKind: "action_results",
+      failure: {
+        runtimeSummary: {
+          progression: "continueable",
+          resultKind: "action_results",
+          failureSummary: "action_results reported failure"
+        }
+      }
+    });
+  });
+
+  it("keeps step continue-able for non-terminal failure signal while holding current task", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const failedResult: EffectResult = {
+      kind: "action_results",
+      success: false,
+      failure_signal: {
+        category: "action",
+        source: "shell",
+        terminal: false,
+        summary: "tool command failed"
+      },
+      payload: { reason: "failed" },
+      context: { handled: false }
+    };
+
+    const result = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, failedResult);
+
+    expect(result).toMatchObject({
+      status: "running",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "action_results",
+      failure: {
+        category: "action",
+        source: "shell",
+        terminal: false,
+        runtimeSummary: {
+          progression: "continueable",
+          resultKind: "action_results",
+          failureSummary: "tool command failed"
+        }
+      }
+    });
+  });
+
+  it("returns terminal step state for terminal failure signal in action_results", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const failedResult: EffectResult = {
+      kind: "action_results",
+      success: false,
+      failure_signal: {
+        category: "runtime",
+        source: "shell",
+        terminal: true,
+        summary: "terminal action failure"
+      },
+      payload: { reason: "failed" },
+      context: { handled: false }
+    };
+
+    const result = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, failedResult);
+
+    expect(result).toMatchObject({
+      status: "failed",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "action_results",
+      failure: {
+        category: "runtime",
+        source: "shell",
+        terminal: true,
+        runtimeSummary: {
+          progression: "terminal",
+          resultKind: "action_results",
+          failureSummary: "terminal action failure"
+        }
+      }
+    });
+  });
+
+  it("holds current task for review_result repair as a non-terminal step path", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewRepair: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "repair"
+      }
+    };
+
+    const result = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, reviewRepair);
+
+    expect(result).toMatchObject({
+      status: "running",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "review_result",
+      failure: {
+        category: "review",
+        terminal: false,
+        runtimeSummary: {
+          progression: "hold_current_task",
+          resultKind: "review_result",
+          failureSummary: "review_result requested repair"
+        }
+      }
+    });
+  });
+
+  it("holds current task for review_result replan as a non-terminal step path", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewReplan: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "replan"
+      }
+    };
+
+    const result = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, reviewReplan);
+
+    expect(result).toMatchObject({
+      status: "running",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "review_result",
+      failure: {
+        category: "review",
+        terminal: false,
+        runtimeSummary: {
+          progression: "hold_current_task",
+          resultKind: "review_result",
+          failureSummary: "review_result requested replan"
+        }
+      }
+    });
+  });
+
+  it("returns terminal step state for review_result stop", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewStop: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "stop"
+      }
+    };
+
+    const result = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, reviewStop);
+
+    expect(result).toMatchObject({
+      status: "failed",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "review_result",
+      failure: {
+        category: "review",
+        terminal: true,
+        runtimeSummary: {
+          progression: "terminal",
+          resultKind: "review_result",
+          failureSummary: "review_result requested stop"
+        }
+      }
     });
   });
 
@@ -76,7 +244,26 @@ describe("applyRuntimeStepResult", () => {
     const direct = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, successfulResult);
     const fromTick = runRuntimeTick(runningState, minimalPlan, minimalTasks, successfulResult).state;
 
-    expect(direct).toEqual(fromTick);
+    expect(fromTick).toMatchObject({
+      status: direct.status,
+      currentTaskId: direct.currentTaskId,
+      lastEffectResultKind: direct.lastEffectResultKind
+    });
+    const directSummary = (
+      direct.failure as { runtimeSummary?: { progression?: string; resultKind?: string } } | undefined
+    )?.runtimeSummary;
+    const tickSummary = (
+      fromTick.failure as { runtimeSummary?: { progression?: string; resultKind?: string } } | undefined
+    )?.runtimeSummary;
+    expect(tickSummary).toMatchObject({
+      progression: directSummary?.progression,
+      resultKind: directSummary?.resultKind
+    });
+    expect(
+      (
+        fromTick.failure as { runtimeSummary?: { requestKind?: string } } | undefined
+      )?.runtimeSummary?.requestKind
+    ).toBe("execute_actions");
   });
 
   it("matches runRuntimeTick(...).state in corresponding failure-result scenario", () => {
@@ -91,6 +278,35 @@ describe("applyRuntimeStepResult", () => {
     const direct = applyRuntimeStepResult(runningState, minimalPlan, minimalTasks, failedResult);
     const fromTick = runRuntimeTick(runningState, minimalPlan, minimalTasks, failedResult).state;
 
-    expect(direct).toEqual(fromTick);
+    expect(fromTick).toMatchObject({
+      status: direct.status,
+      currentTaskId: direct.currentTaskId,
+      lastEffectResultKind: direct.lastEffectResultKind,
+      failure: {
+        category: "action",
+        source: "shell",
+        terminal: false
+      }
+    });
+    const directSummary = (
+      direct.failure as {
+        runtimeSummary?: { progression?: string; resultKind?: string; failureSummary?: string };
+      } | undefined
+    )?.runtimeSummary;
+    const tickSummary = (
+      fromTick.failure as {
+        runtimeSummary?: { progression?: string; resultKind?: string; failureSummary?: string };
+      } | undefined
+    )?.runtimeSummary;
+    expect(tickSummary).toMatchObject({
+      progression: directSummary?.progression,
+      resultKind: directSummary?.resultKind,
+      failureSummary: directSummary?.failureSummary
+    });
+    expect(
+      (
+        fromTick.failure as { runtimeSummary?: { requestKind?: string } } | undefined
+      )?.runtimeSummary?.requestKind
+    ).toBe("execute_actions");
   });
 });

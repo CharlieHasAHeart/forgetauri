@@ -246,3 +246,25 @@ Recommended entry structure:
 * failure handling is no longer only `success: false`; normalized failure signal now flows protocol -> shell -> core
 * core now distinguishes record-only failures from terminal failures in explicit code paths
 * local full test suite remains green (`17/17` files, `134/134` tests)
+
+---
+
+## 2026-03-18 — core runtime observability summary converged to shared state slot
+
+### Changed
+
+* updated `src/core/apply-runtime-step-result.ts` to write a minimal shared runtime summary (`progression`, `resultKind`, `failureSummary`) into `state.failure.runtimeSummary`
+* updated `src/core/run-runtime-tick.ts` so tick-level observability reuses the shared summary and only supplements `requestKind` when step summary already exists
+* updated `tests/core/apply-runtime-step-result.test.ts` and `tests/core/run-runtime-tick.test.ts` to assert shared-summary semantics across continue / hold / terminal paths and failure-signal cases
+
+### Scope
+
+* core runtime progression observability
+* shared minimal runtime summary surface
+* semantic transition test alignment
+
+### Result
+
+* runtime now has a single minimal Core-shared observability slot instead of tick-local-only summary logic
+* step/result/failure/progression are visible through a stable serialized summary, with tick adding request-kind context when available
+* local full test suite remains green (`17/17` files, `140/140` tests)
