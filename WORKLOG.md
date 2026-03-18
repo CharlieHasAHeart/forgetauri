@@ -220,3 +220,29 @@ Recommended entry structure:
 * runtime progression now visibly distinguishes continue-able, hold/current-task, and stop paths
 * `repair` and `replan` are represented as explicit minimal branches without pretending full orchestration
 * local test suite remains green after change (`17/17` files, `133/133` tests)
+
+---
+
+## 2026-03-18 — protocol/core/shell failure-signal semantics converged
+
+### Changed
+
+* refined `src/protocol/failure-signal.ts` into a minimal normalized protocol object (`category`, `source`, `terminal`, optional `message`/`summary`) with type guards
+* extended `src/protocol/effect-result.ts` with optional `failure_signal` and related narrowing helpers while keeping `success` as aggregate signal
+* updated `src/shell/build-action-result.ts` to keep stable protocol-conformant failed action outputs and explicit invalid-action normalization helpers
+* updated `src/shell/build-effect-result-from-actions.ts` so failed `action_results` now carry normalized aggregated `failure_signal`
+* updated `src/core/apply-effect-result.ts` to explicitly absorb `failure_signal`, distinguish terminal vs non-terminal failure impact, and preserve minimal branch semantics
+* expanded `tests/core/apply-effect-result.test.ts` to assert terminal/non-terminal failure-signal behavior across action and review branches
+
+### Scope
+
+* protocol boundary normalization
+* shell result construction semantics
+* core failure absorption semantics
+* semantic transition tests
+
+### Result
+
+* failure handling is no longer only `success: false`; normalized failure signal now flows protocol -> shell -> core
+* core now distinguishes record-only failures from terminal failures in explicit code paths
+* local full test suite remains green (`17/17` files, `134/134` tests)

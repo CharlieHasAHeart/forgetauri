@@ -1,10 +1,12 @@
 import {
+  isFailedActionResult,
   isEffectRequest,
   isSuccessfulActionResult,
   type Action,
   type ActionResult,
   type EffectRequest,
-  type EffectResult
+  type EffectResult,
+  type FailureSignal
 } from "../protocol/index.js";
 import { buildActionResult, canBuildActionResult } from "./build-action-result.js";
 
@@ -29,13 +31,43 @@ export function areAllActionResultsSuccessful(results: ActionResult[]): boolean 
   return true;
 }
 
+export function collectFailedActionResults(results: ActionResult[]): ActionResult[] {
+  return results.filter((result) => isFailedActionResult(result));
+}
+
+export function buildFailureSignalFromActionResults(
+  results: ActionResult[]
+): FailureSignal | undefined {
+  const failedResults = collectFailedActionResults(results);
+
+  if (failedResults.length === 0) {
+    return undefined;
+  }
+
+  const firstFailure = failedResults[0];
+
+  return {
+    category: "action",
+    source: "shell",
+    terminal: false,
+    message: firstFailure.errorMessage ?? "action_execution_failed",
+    summary: `${failedResults.length} action(s) failed`
+  };
+}
+
 export function buildEffectResultFromActionResults(
   request: EffectRequest,
   results: ActionResult[]
 ): EffectResult {
+  const success = areAllActionResultsSuccessful(results);
+  const failureSignal = success
+    ? undefined
+    : buildFailureSignalFromActionResults(results);
+
   return {
     kind: "action_results",
-    success: areAllActionResultsSuccessful(results),
+    success,
+    failure_signal: failureSignal,
     payload: buildActionResultsPayload(results),
     context: {
       requestKind: request.kind,

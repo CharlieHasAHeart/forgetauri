@@ -1,10 +1,13 @@
 import {
+  hasEffectResultFailureSignal,
   isEffectResult,
   isFailedEffectResult,
+  isFailureSignal,
   isSuccessfulEffectResult,
   type ActionResultsEffectResult,
   type AgentState,
   type EffectResult,
+  type FailureSignal,
   type ReviewEffectResult
 } from "../protocol/index.js";
 import { isAgentStateTerminal } from "./terminal.js";
@@ -21,6 +24,119 @@ export function clearCurrentTaskAfterEffect(state: AgentState): AgentState {
   return { ...state, currentTaskId: undefined };
 }
 
+export function setFailureSignal(
+  state: AgentState,
+  signal: FailureSignal
+): AgentState {
+  return { ...state, failure: signal };
+}
+
+export function extractFailureSignalFromResult(
+  result: EffectResult
+): FailureSignal | undefined {
+  if (hasEffectResultFailureSignal(result)) {
+    return result.failure_signal;
+  }
+
+  if (isFailureSignal(result.context)) {
+    return result.context;
+  }
+
+  const contextFailureSignal =
+    typeof result.context === "object" && result.context !== null
+      ? Reflect.get(result.context, "failureSignal")
+      : undefined;
+  if (isFailureSignal(contextFailureSignal)) {
+    return contextFailureSignal;
+  }
+
+  const contextFailureSignalSnake =
+    typeof result.context === "object" && result.context !== null
+      ? Reflect.get(result.context, "failure_signal")
+      : undefined;
+  if (isFailureSignal(contextFailureSignalSnake)) {
+    return contextFailureSignalSnake;
+  }
+
+  return undefined;
+}
+
+export function resolveFailureSignalForResult(
+  result: EffectResult
+): FailureSignal | undefined {
+  const providedSignal = extractFailureSignalFromResult(result);
+
+  if (providedSignal) {
+    return providedSignal;
+  }
+
+  if (isFailedEffectResult(result)) {
+    return buildDefaultFailureSignalForResult(result);
+  }
+
+  if (result.kind === "review_result" && result.payload.next_action !== "continue") {
+    return buildDefaultFailureSignalForResult(result);
+  }
+
+  return undefined;
+}
+
+export function buildDefaultFailureSignalForResult(
+  result: EffectResult
+): FailureSignal {
+  if (result.kind === "action_results") {
+    return {
+      category: "action",
+      source: "shell",
+      terminal: false,
+      summary: "action_results reported failure"
+    };
+  }
+
+  if (result.payload.next_action === "stop") {
+    return {
+      category: "review",
+      source: "shell",
+      terminal: true,
+      summary: "review_result requested stop"
+    };
+  }
+
+  if (result.payload.next_action === "repair") {
+    return {
+      category: "review",
+      source: "shell",
+      terminal: false,
+      summary: "review_result requested repair"
+    };
+  }
+
+  return {
+    category: "review",
+    source: "shell",
+    terminal: false,
+    summary: "review_result requested replan"
+  };
+}
+
+export function absorbFailureSignal(
+  state: AgentState,
+  result: EffectResult
+): AgentState {
+  const signal = resolveFailureSignalForResult(result);
+
+  if (!signal) {
+    return state;
+  }
+
+  return setFailureSignal(state, signal);
+}
+
+export function hasTerminalFailureSignal(result: EffectResult): boolean {
+  const signal = resolveFailureSignalForResult(result);
+  return signal?.terminal === true;
+}
+
 export function applyActionResultsEffectResult(
   state: AgentState,
   result: ActionResultsEffectResult
@@ -31,7 +147,13 @@ export function applyActionResultsEffectResult(
     return clearCurrentTaskAfterEffect(withKind);
   }
 
-  return withKind;
+  const withFailure = absorbFailureSignal(withKind, result);
+
+  if (hasTerminalFailureSignal(result)) {
+    return transitionAgentState(withFailure, "failed");
+  }
+
+  return withFailure;
 }
 
 export function applyReviewEffectResult(
@@ -46,15 +168,28 @@ export function applyReviewEffectResult(
   }
 
   if (nextAction === "repair") {
-    return withKind;
+    const withFailure = absorbFailureSignal(withKind, result);
+
+    if (hasTerminalFailureSignal(result)) {
+      return transitionAgentState(withFailure, "failed");
+    }
+
+    return withFailure;
   }
 
   if (nextAction === "replan") {
-    return withKind;
+    const withFailure = absorbFailureSignal(withKind, result);
+
+    if (hasTerminalFailureSignal(result)) {
+      return transitionAgentState(withFailure, "failed");
+    }
+
+    return withFailure;
   }
 
   if (nextAction === "stop") {
-    return transitionAgentState(withKind, "failed");
+    const withFailure = absorbFailureSignal(withKind, result);
+    return transitionAgentState(withFailure, "failed");
   }
 
   return withKind;
@@ -84,14 +219,14 @@ export function applyFailedEffectResult(
   const withKind = setLastEffectResultKind(state, result.kind);
 
   if (result.kind === "action_results") {
-    return applyActionResultsEffectResult(state, result);
+    return applyActionResultsEffectResult(withKind, result);
   }
 
   if (result.kind === "review_result") {
-    return applyReviewEffectResult(state, result);
+    return applyReviewEffectResult(withKind, result);
   }
 
-  return withKind;
+  return absorbFailureSignal(withKind, result);
 }
 
 export function applyEffectResult(

@@ -1,3 +1,5 @@
+import { isFailureSignal, type FailureSignal } from "./failure-signal.js";
+
 // Protocol-layer standardized effect result object; keep it serializable across boundaries.
 export const EFFECT_RESULT_KINDS = ["action_results", "review_result"] as const;
 
@@ -19,6 +21,7 @@ export interface ReviewResultPayload {
 interface BaseEffectResult {
   kind: EffectResultKind;
   success: boolean;
+  failure_signal?: FailureSignal;
   context?: unknown;
 }
 
@@ -33,6 +36,7 @@ export interface ReviewEffectResult extends BaseEffectResult {
 }
 
 export type EffectResult = ActionResultsEffectResult | ReviewEffectResult;
+export type FailedEffectResult = EffectResult & { success: false };
 
 export function isEffectResultKind(value: unknown): value is EffectResultKind {
   return (
@@ -78,8 +82,13 @@ export function isEffectResult(value: unknown): value is EffectResult {
   const kind = Reflect.get(value, "kind");
   const success = Reflect.get(value, "success");
   const payload = Reflect.get(value, "payload");
+  const failureSignal = Reflect.get(value, "failure_signal");
 
   if (!isEffectResultKind(kind) || typeof success !== "boolean" || !Reflect.has(value, "payload")) {
+    return false;
+  }
+
+  if (failureSignal !== undefined && !isFailureSignal(failureSignal)) {
     return false;
   }
 
@@ -94,6 +103,18 @@ export function isSuccessfulEffectResult(result: EffectResult): boolean {
   return result.success === true;
 }
 
-export function isFailedEffectResult(result: EffectResult): boolean {
+export function isFailedEffectResult(result: EffectResult): result is FailedEffectResult {
   return result.success === false;
+}
+
+export function hasEffectResultFailureSignal(
+  result: EffectResult
+): result is EffectResult & { failure_signal: FailureSignal } {
+  return isFailureSignal(result.failure_signal);
+}
+
+export function extractEffectResultFailureSignal(
+  result: EffectResult
+): FailureSignal | undefined {
+  return hasEffectResultFailureSignal(result) ? result.failure_signal : undefined;
 }

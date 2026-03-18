@@ -1,21 +1,30 @@
 // Protocol-layer standardized failure signal; keep it serializable across boundaries.
-export const FAILURE_KINDS = [
-  "transient",
-  "repairable",
-  "replan_required",
-  "fatal"
-] as const;
+export const FAILURE_CATEGORIES = ["action", "review", "runtime"] as const;
+export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
 
-export type FailureKind = (typeof FAILURE_KINDS)[number];
+export const FAILURE_SOURCES = ["core", "shell", "external"] as const;
+export type FailureSource = (typeof FAILURE_SOURCES)[number];
 
 export interface FailureSignal {
-  kind: FailureKind;
-  reason: string;
-  retryable?: boolean;
+  category: FailureCategory;
+  source: FailureSource;
+  terminal: boolean;
+  message?: string;
+  summary?: string;
 }
 
-export function isFailureKind(value: unknown): value is FailureKind {
-  return typeof value === "string" && FAILURE_KINDS.some((kind) => kind === value);
+export function isFailureCategory(value: unknown): value is FailureCategory {
+  return (
+    typeof value === "string" &&
+    FAILURE_CATEGORIES.some((category) => category === value)
+  );
+}
+
+export function isFailureSource(value: unknown): value is FailureSource {
+  return (
+    typeof value === "string" &&
+    FAILURE_SOURCES.some((source) => source === value)
+  );
 }
 
 export function isFailureSignal(value: unknown): value is FailureSignal {
@@ -23,17 +32,26 @@ export function isFailureSignal(value: unknown): value is FailureSignal {
     return false;
   }
 
-  const kind = Reflect.get(value, "kind");
-  const reason = Reflect.get(value, "reason");
-  const retryable = Reflect.get(value, "retryable");
+  const category = Reflect.get(value, "category");
+  const source = Reflect.get(value, "source");
+  const terminal = Reflect.get(value, "terminal");
+  const message = Reflect.get(value, "message");
+  const summary = Reflect.get(value, "summary");
 
-  if (!isFailureKind(kind) || typeof reason !== "string") {
+  if (
+    !isFailureCategory(category) ||
+    !isFailureSource(source) ||
+    typeof terminal !== "boolean"
+  ) {
     return false;
   }
 
-  return retryable === undefined || typeof retryable === "boolean";
+  return (
+    (message === undefined || typeof message === "string") &&
+    (summary === undefined || typeof summary === "string")
+  );
 }
 
-export function isTerminalFailureKind(kind: FailureKind): boolean {
-  return kind === "fatal";
+export function isTerminalFailureSignal(signal: FailureSignal): boolean {
+  return signal.terminal;
 }

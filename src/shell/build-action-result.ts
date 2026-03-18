@@ -1,5 +1,13 @@
 import { isAction, isActionKind, type Action, type ActionResult } from "../protocol/index.js";
 
+export function normalizeActionName(actionName: string | undefined): string {
+  return actionName ?? "unknown-action";
+}
+
+export function buildInvalidActionErrorMessage(reason: string | undefined): string {
+  return reason ?? "invalid_action";
+}
+
 export function buildAcceptedActionResult(action: Action): ActionResult {
   return {
     status: "succeeded",
@@ -24,8 +32,8 @@ export function buildInvalidActionResult(
 ): ActionResult {
   return {
     status: "failed",
-    actionName: actionName ?? "unknown-action",
-    errorMessage: reason ?? "invalid_action"
+    actionName: normalizeActionName(actionName),
+    errorMessage: buildInvalidActionErrorMessage(reason)
   };
 }
 
