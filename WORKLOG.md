@@ -131,3 +131,24 @@ Recommended entry structure:
 ### Result
 
 * `README.md` now matches current structure, priorities, and collaboration workflow
+
+---
+
+## 2026-03-18 — protocol review contract and architecture docs refined
+
+### Changed
+
+* refined `src/protocol/effect-result.ts` so `review_result` uses an explicit minimal payload contract (`decision`, `next_action`, optional `summary`) with dedicated type guards
+* updated `docs/architecture/03-core_internal_design_and_agent_loop_spec.md` to strengthen failure absorption semantics, review-required separation, and non-linear runtime loop wording
+* updated `docs/architecture/05-profile_design_and_assembly_spec.md` to position Profile as runtime constraint/governance surface while preserving profile-agnostic Core semantics
+
+### Scope
+
+* protocol boundary typing
+* core architecture spec wording
+* profile architecture spec wording
+
+### Result
+
+* review-related result flow now has a clearer protocol contract for next-step runtime integration
+* architecture docs are better aligned with robust runtime semantics and constraint-oriented Profile governance

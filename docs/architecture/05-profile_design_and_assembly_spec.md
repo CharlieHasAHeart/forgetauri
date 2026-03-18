@@ -18,32 +18,31 @@
 
 ## 2. Profile 的定位
 
-Profile 是 **Shell 的装配输入（shell assembly input）**，不是 Core 的语义依赖。
+Profile 是 **runtime constraint and governance surface**，主要通过 Shell assembly、policy selection 与 capability binding 落地，但不是 Core 的语义依赖。
+
+Profile 的作用是：
+
+- 表达运行约束；
+- 表达治理与审批边界；
+- 表达 capability / sandbox / review / policy 的装配面；
+- 为特定场景提供清晰、可审计的 runtime configuration surface。
+
+Profile 不是 Core semantic plug-in，也不是 runtime state machine extension。
+
+Profile 的配置面不只是“如何装配 Shell”，还包括“在什么约束下运行 runtime”。
 
 Profile 可配置：
 
-- handler bindings
-- capability bindings
-- action policy
-- context policy
-- middleware selection
-- sandbox policy
-- review routing policy
-
-Profile 不负责：
-
-- 定义 `done` / `failed`
-- 改写 Core transition
-- 改写 task / milestone / goal acceptance semantics
-- 把 provider/tool/sandbox 原生对象引入 Core 原语
-
-Profile 不是 Core semantic plug-in，也不是 runtime state machine extension。
+- capability binding；
+- sandbox policy；
+- review routing policy；
+- governance / approval boundary。
 
 ---
 
 ## 3. 设计原则
 
-1. **Declarative Assembly First**：Profile 以声明式配置描述场景约束，不直接编写 Core 语义分支。  
+1. **Declarative Constraint and Assembly First**：Profile 以声明式配置表达 runtime constraints、governance surface 与场景装配，不直接编写 Core 语义分支。  
 2. **Explicit Configuration Surface**：所有策略面应显式可见，避免隐式规则注入。  
 3. **Preserve Profile-Agnostic Core Semantics**：Core 保持 profile-agnostic 语义，不因 Profile 改写状态机定义。  
 4. **Replace by New Profile, Not by Core Mutation**：扩展场景优先新增或替换 Profile，而不是修改 Core 语义。  
@@ -116,7 +115,7 @@ HITL 是 Profile 可配置的治理策略之一，属于 Shell governance / asse
 
 当前 Profile 实现仍偏 runtime profile / default profile。主线已落地能力主要是默认 profile、参数解析与运行方式约束（如 `maxSteps`、`autoRunToCompletion`、`allowShellExecution`、`enableReview` 读取）。
 
-尚未形成完整 scenario-specific profile assembly system。文中提到的更强场景化装配能力属于可扩展方向，不应表述为当前已完整落地。
+当前 Profile 仍主要承担轻量 runtime constraint 角色，尚未形成完整的 scenario-specific profile assembly and governance system。文中提到的更强场景化装配、审批路由、能力治理与策略面，属于可扩展方向，不应表述为当前已完整落地。
 
 ---
 
