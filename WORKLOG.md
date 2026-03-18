@@ -109,3 +109,25 @@ Recommended entry structure:
 ### Result
 
 * the repository now has a lighter document system better suited for repeated Codex-assisted work
+
+---
+
+## 2026-03-18 — readme aligned with current repository state
+
+### Changed
+
+* refreshed `README.md` project description to reflect current scenario-oriented runtime direction
+* aligned layer definitions with `AGENTS.md` responsibilities (`app`, `shell`, `core`, `protocol`, `profiles`)
+* corrected repository layout and removed outdated roadmap path reference
+* updated script section to match `package.json`
+* added explicit three-document collaboration flow (`AGENTS.md`, `ROADMAP.md`, `WORKLOG.md`)
+
+### Scope
+
+* docs
+* contributor onboarding
+* repository navigation
+
+### Result
+
+* `README.md` now matches current structure, priorities, and collaboration workflow

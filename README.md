@@ -1,56 +1,58 @@
 # ForgeTauri
 
-A repository focused on the **Agent architecture specification and layout**.
+Scenario-oriented agent runtime architecture repository.
 
-This project currently keeps a clean structure for:
+Current direction:
+- move from structural baseline toward semantic closure in `core`
+- stabilize Core/Shell contracts in `protocol`
+- keep `profiles` constraint-oriented
 
-- `core`: runtime semantics and state-machine design
-- `shell`: effect execution boundary
-- `profiles`: scenario assembly boundary
-- `protocol`: Core↔Shell contracts
+## Layers
+
+- `app`: thin entry points and caller-facing wrappers
+- `shell`: execution bridge, request handling, and result normalization
+- `core`: runtime semantics and state progression
+- `protocol`: shared shapes and cross-layer contracts
+- `profiles`: runtime constraints and scenario configuration
 
 ## Repository Layout
 
 ```text
 .
 ├── AGENTS.md
+├── ROADMAP.md
+├── WORKLOG.md
 ├── README.md
 ├── docs/
-│   ├── architecture/
-│   │   ├── 01-agent_architecture_glossary.md
-│   │   ├── 02-core_shell_profile_architecture_spec.md
-│   │   ├── 03-core_internal_design_and_agent_loop_spec.md
-│   │   ├── 04-shell_internal_design_and_effect_handling_spec.md
-│   │   ├── 05-profile_design_and_assembly_spec.md
-│   │   └── 06-core_shell_protocol_and_data_model_spec.md
-│   └── planning/
-│       └── 07-implementation_roadmap.md
+│   └── architecture/
 ├── src/
+│   ├── app/
 │   ├── core/
 │   ├── shell/
-│   ├── profiles/
-│   └── protocol/
+│   ├── protocol/
+│   └── profiles/
 └── tests/
+    ├── app/
     ├── core/
     ├── shell/
-    └── protocol/
+    └── shared/
 ```
 
 ## Scripts
 
-- `pnpm build`: TypeScript compilation
-- `pnpm test`: run tests
-- `pnpm test:watch`: watch mode
+- `pnpm build`: compile TypeScript
+- `pnpm test`: run unit tests once
+- `pnpm test:unit`: same as `pnpm test`
+- `pnpm test:watch`: run tests in watch mode
 
-## Development Notes
+## Collaboration Flow
 
-1. Keep architectural semantics in `docs/architecture/*` consistent with code structure.
-2. Do not couple workflow-specific logic into `core`.
-3. Add tests under layer-specific folders:
-   - `tests/core`
-   - `tests/shell`
-   - `tests/protocol`
+Follow the three-document system:
 
-## Roadmap
+1. read `AGENTS.md` for stable workflow and collaboration rules
+2. read `ROADMAP.md` for current priorities and sequencing
+3. read `WORKLOG.md` for factual history of meaningful changes
 
-See `docs/planning/07-implementation_roadmap.md`.
+## Architecture Docs
+
+Primary specs live in `docs/architecture/`.
