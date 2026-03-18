@@ -9,7 +9,10 @@ import { isCoreRunStable } from "./drive-core-run.js";
 import { applyRuntimeStepResult } from "./apply-runtime-step-result.js";
 import { canRunEffectCycle } from "./run-effect-cycle.js";
 import { prepareRuntimeStepState } from "./prepare-runtime-step-state.js";
-import { prepareRuntimeStepRequest } from "./prepare-runtime-step-request.js";
+import {
+  canPrepareRuntimeStepRequestAfterResult,
+  prepareRuntimeStepRequest
+} from "./prepare-runtime-step-request.js";
 import { isAgentStateTerminal } from "./terminal.js";
 import { cloneAgentState } from "./transition-engine.js";
 
@@ -29,9 +32,10 @@ export function prepareRuntimeTickState(
 export function prepareRuntimeTickRequest(
   state: AgentState,
   plan: Plan | undefined,
-  tasks: Task[]
+  tasks: Task[],
+  result?: EffectResult
 ): EffectRequest | undefined {
-  return prepareRuntimeStepRequest(state, plan, tasks);
+  return prepareRuntimeStepRequest(state, plan, tasks, result);
 }
 
 export function applyRuntimeTickResult(
@@ -55,7 +59,10 @@ export function runRuntimeTick(
 
   const preparedState = prepareRuntimeTickState(state, plan, tasks);
   const appliedState = applyRuntimeTickResult(preparedState, plan, tasks, result);
-  const request = prepareRuntimeTickRequest(appliedState, plan, tasks);
+  const canPrepareRequest = canPrepareRuntimeStepRequestAfterResult(result);
+  const request = canPrepareRequest
+    ? prepareRuntimeTickRequest(appliedState, plan, tasks, result)
+    : undefined;
 
   return {
     state: appliedState,

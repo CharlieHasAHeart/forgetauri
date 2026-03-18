@@ -69,4 +69,93 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeDefined();
     expect(tick.request?.kind).toBe("execute_actions");
   });
+
+  it("consumes review_result continue and allows next request", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewContinue: EffectResult = {
+      kind: "review_result",
+      success: true,
+      payload: {
+        decision: "approved",
+        next_action: "continue"
+      },
+      context: { handled: true }
+    };
+
+    const tick = runRuntimeTick(runningState, minimalPlan, minimalTasks, reviewContinue);
+
+    expect(tick.state).toMatchObject({
+      status: "running",
+      currentTaskId: undefined,
+      lastEffectResultKind: "review_result"
+    });
+    expect(tick.request).toBeDefined();
+    expect(tick.request?.kind).toBe("execute_actions");
+  });
+
+  it("consumes review_result repair and keeps current task without new request", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewRepair: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "repair"
+      },
+      context: { handled: true }
+    };
+
+    const tick = runRuntimeTick(runningState, minimalPlan, minimalTasks, reviewRepair);
+
+    expect(tick.state).toMatchObject({
+      status: "running",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "review_result"
+    });
+    expect(tick.request).toBeUndefined();
+  });
+
+  it("consumes review_result replan and keeps current task without new request", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewReplan: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "replan"
+      },
+      context: { handled: true }
+    };
+
+    const tick = runRuntimeTick(runningState, minimalPlan, minimalTasks, reviewReplan);
+
+    expect(tick.state).toMatchObject({
+      status: "running",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "review_result"
+    });
+    expect(tick.request).toBeUndefined();
+  });
+
+  it("consumes review_result stop and blocks further request generation", () => {
+    const runningState = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const reviewStop: EffectResult = {
+      kind: "review_result",
+      success: false,
+      payload: {
+        decision: "changes_requested",
+        next_action: "stop"
+      },
+      context: { handled: true }
+    };
+
+    const tick = runRuntimeTick(runningState, minimalPlan, minimalTasks, reviewStop);
+
+    expect(tick.state).toMatchObject({
+      status: "failed",
+      currentTaskId: "task-1",
+      lastEffectResultKind: "review_result"
+    });
+    expect(tick.request).toBeUndefined();
+  });
 });

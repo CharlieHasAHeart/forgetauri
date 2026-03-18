@@ -198,3 +198,25 @@ Recommended entry structure:
 * runtime meaning now distinguishes action/review outcomes without collapsing all failures into run-level failure
 * review result path now satisfies protocol type-guards end-to-end
 * full test suite passes locally (`17/17` files, `129/129` tests)
+
+---
+
+## 2026-03-18 — core runtime tick progression made result-meaning aware
+
+### Changed
+
+* updated `src/core/prepare-runtime-step-request.ts` with explicit post-result request gating (`action_results`, and `review_result` `continue/repair/replan/stop`)
+* updated `src/core/run-runtime-tick.ts` to apply explicit request-preparation policy instead of relying on implicit downstream behavior
+* expanded `tests/core/run-runtime-tick.test.ts` with direct assertions for failed action results and all review next-action branches
+
+### Scope
+
+* core runtime progression policy
+* core request preparation gating
+* semantic transition tests
+
+### Result
+
+* runtime progression now visibly distinguishes continue-able, hold/current-task, and stop paths
+* `repair` and `replan` are represented as explicit minimal branches without pretending full orchestration
+* local test suite remains green after change (`17/17` files, `133/133` tests)
