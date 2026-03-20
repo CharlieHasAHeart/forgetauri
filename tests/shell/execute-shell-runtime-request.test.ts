@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type EffectRequest } from "../../src/protocol/index.ts";
+import { type Action, type EffectRequest } from "../../src/protocol/index.ts";
 import { executeEffectRequest } from "../../src/shell/execute-effect-request.ts";
 import { executeShellRuntimeRequest } from "../../src/shell/execute-shell-runtime-request.ts";
 import { runShellRuntimeStep } from "../../src/shell/run-shell-runtime.ts";
@@ -8,6 +8,24 @@ import {
   minimalPlan,
   minimalTasks
 } from "../shared/minimal-runtime-fixtures.ts";
+
+function buildCapabilityAction(
+  overrides: Partial<Action> = {}
+): Action {
+  return {
+    kind: "capability",
+    name: "controlled_single_file_text_modification",
+    input: {
+      target_path: "docs/notes.md",
+      change: {
+        kind: "replace_text",
+        find_text: "before",
+        replace_text: "after"
+      }
+    },
+    ...overrides
+  };
+}
 
 describe("executeShellRuntimeRequest", () => {
   it("returns undefined when request is undefined", () => {
@@ -18,7 +36,7 @@ describe("executeShellRuntimeRequest", () => {
     const request: EffectRequest = {
       kind: "execute_actions",
       payload: {
-        actions: [{ kind: "tool", name: "lint" }]
+        actions: [buildCapabilityAction()]
       }
     };
 

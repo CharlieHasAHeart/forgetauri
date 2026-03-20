@@ -45,12 +45,24 @@ export function buildFailureSignalFromActionResults(
   }
 
   const firstFailure = failedResults[0];
+  const refusal =
+    typeof firstFailure.output === "object" && firstFailure.output !== null
+      ? Reflect.get(firstFailure.output, "refusal")
+      : undefined;
+  const refusalSummary =
+    typeof refusal === "object" && refusal !== null
+      ? Reflect.get(refusal, "summary")
+      : undefined;
+  const normalizedMessage =
+    typeof refusalSummary === "string"
+      ? refusalSummary
+      : firstFailure.errorMessage ?? "action_execution_failed";
 
   return {
     category: "action",
     source: "shell",
     terminal: false,
-    message: firstFailure.errorMessage ?? "action_execution_failed",
+    message: normalizedMessage,
     summary: `${failedResults.length} action(s) failed`
   };
 }

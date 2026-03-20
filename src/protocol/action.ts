@@ -1,5 +1,11 @@
 // Protocol-layer standardized action object; keep it serializable across boundaries.
-export const ACTION_KINDS = ["tool", "command", "review", "system"] as const;
+export const ACTION_KINDS = [
+  "tool",
+  "command",
+  "review",
+  "system",
+  "capability"
+] as const;
 
 export type ActionKind = (typeof ACTION_KINDS)[number];
 

@@ -1,4 +1,14 @@
-import { isAction, isActionKind, type Action, type ActionResult } from "../protocol/index.js";
+import {
+  buildControlledSingleFileTextModificationRefusalSummary,
+  isAction,
+  isActionKind,
+  isControlledSingleFileTextModificationAction,
+  validateControlledSingleFileTextModificationInput,
+  type Action,
+  type ActionResult,
+  type ControlledSingleFileTextModificationFailure,
+  type ControlledSingleFileTextModificationSuccess
+} from "../protocol/index.js";
 
 export function normalizeActionName(actionName: string | undefined): string {
   return actionName ?? "unknown-action";
@@ -9,12 +19,45 @@ export function buildInvalidActionErrorMessage(reason: string | undefined): stri
 }
 
 export function buildAcceptedActionResult(action: Action): ActionResult {
+  if (!isControlledSingleFileTextModificationAction(action)) {
+    return buildRejectedActionResult(action);
+  }
+
+  const validation = validateControlledSingleFileTextModificationInput(action.input);
+  if (!validation.accepted) {
+    return buildControlledSingleFileTextModificationFailedActionResult(
+      action.name,
+      validation.refusalCode,
+      action.input
+    );
+  }
+
+  return buildControlledSingleFileTextModificationSucceededActionResult(
+    action.name,
+    validation.input.target_path
+  );
+}
+
+export function buildControlledSingleFileTextModificationSucceededActionResult(
+  actionName: string,
+  targetPath: string
+): ActionResult {
+  const output: ControlledSingleFileTextModificationSuccess = {
+    applied: true,
+    summary: `contract accepted for ${targetPath}`,
+    evidence: {
+      capability: "controlled_single_file_text_modification",
+      target_path: targetPath,
+      single_file: true,
+      text_only: true,
+      change_kind: "replace_text"
+    }
+  };
+
   return {
     status: "succeeded",
-    actionName: action.name,
-    output: {
-      accepted: true
-    }
+    actionName,
+    output
   };
 }
 
@@ -23,6 +66,43 @@ export function buildRejectedActionResult(action: Action): ActionResult {
     status: "failed",
     actionName: action.name,
     errorMessage: "unsupported_action"
+  };
+}
+
+export function buildControlledSingleFileTextModificationFailedActionResult(
+  actionName: string,
+  refusalCode:
+    | "invalid_path"
+    | "unsupported_file_type"
+    | "missing_target"
+    | "empty_request"
+    | "no_op_request",
+  input: unknown
+): ActionResult {
+  const maybeTargetPath =
+    typeof input === "object" && input !== null ? Reflect.get(input, "target_path") : undefined;
+  const targetPath = typeof maybeTargetPath === "string" ? maybeTargetPath : undefined;
+
+  const output: ControlledSingleFileTextModificationFailure = {
+    applied: false,
+    refusal: {
+      code: refusalCode,
+      summary: buildControlledSingleFileTextModificationRefusalSummary(refusalCode)
+    },
+    evidence: {
+      capability: "controlled_single_file_text_modification",
+      target_path: targetPath,
+      single_file: true,
+      text_only: true,
+      change_kind: "replace_text"
+    }
+  };
+
+  return {
+    status: "failed",
+    actionName,
+    errorMessage: refusalCode,
+    output
   };
 }
 
@@ -72,5 +152,13 @@ export function canBuildActionResult(action: Action | undefined): boolean {
     return false;
   }
 
-  return isActionKind(action.kind);
+  if (!isActionKind(action.kind)) {
+    return false;
+  }
+
+  if (!isControlledSingleFileTextModificationAction(action)) {
+    return false;
+  }
+
+  return validateControlledSingleFileTextModificationInput(action.input).accepted;
 }

@@ -11,6 +11,24 @@ import {
   canBuildActionResult
 } from "../../src/shell/build-action-result.ts";
 
+function buildCapabilityAction(
+  overrides: Partial<Action> = {}
+): Action {
+  return {
+    kind: "capability",
+    name: "controlled_single_file_text_modification",
+    input: {
+      target_path: "docs/notes.md",
+      change: {
+        kind: "replace_text",
+        find_text: "before",
+        replace_text: "after"
+      }
+    },
+    ...overrides
+  };
+}
+
 describe("action-executor", () => {
   it("returns stable result for executeAction(undefined)", () => {
     const result = executeAction(undefined);
@@ -23,15 +41,16 @@ describe("action-executor", () => {
   });
 
   it("returns result consistent with buildActionResult for valid action", () => {
-    const action: Action = { kind: "tool", name: "run_tests" };
+    const action = buildCapabilityAction({
+      name: "controlled_single_file_text_modification"
+    });
 
     const result = executeAction(action);
 
     expect(result).toEqual(buildActionResult(action));
     expect(result).toMatchObject({
       status: "succeeded",
-      actionName: "run_tests",
-      output: { accepted: true }
+      actionName: "controlled_single_file_text_modification"
     });
   });
 
@@ -44,8 +63,17 @@ describe("action-executor", () => {
 
   it("maps each valid action to one ActionResult", () => {
     const actions: Action[] = [
-      { kind: "tool", name: "lint" },
-      { kind: "command", name: "test" }
+      buildCapabilityAction(),
+      buildCapabilityAction({
+        input: {
+          target_path: "src/app/index.ts",
+          change: {
+            kind: "replace_text",
+            find_text: "one",
+            replace_text: "two"
+          }
+        }
+      })
     ];
 
     const results = executeActions(actions);
@@ -60,7 +88,7 @@ describe("action-executor", () => {
   });
 
   it("returns true for valid action and matches canBuildActionResult", () => {
-    const action: Action = { kind: "review", name: "check_result" };
+    const action = buildCapabilityAction();
 
     expect(canExecuteAction(action)).toBe(true);
     expect(canExecuteAction(action)).toBe(canBuildActionResult(action));
@@ -72,8 +100,17 @@ describe("action-executor", () => {
 
   it("returns true for canExecuteActions with all valid actions", () => {
     const actions: Action[] = [
-      { kind: "tool", name: "lint" },
-      { kind: "system", name: "sync_state" }
+      buildCapabilityAction(),
+      buildCapabilityAction({
+        input: {
+          target_path: "README.md",
+          change: {
+            kind: "replace_text",
+            find_text: "old",
+            replace_text: "new"
+          }
+        }
+      })
     ];
 
     expect(canExecuteActions(actions)).toBe(true);
@@ -81,7 +118,7 @@ describe("action-executor", () => {
 
   it("returns false for canExecuteActions with mixed valid and invalid actions", () => {
     const mixed = [
-      { kind: "tool", name: "lint" },
+      buildCapabilityAction(),
       { kind: "tool" }
     ] as unknown as Action[];
 

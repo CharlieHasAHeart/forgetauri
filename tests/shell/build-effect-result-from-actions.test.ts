@@ -10,6 +10,24 @@ import {
   canBuildEffectResultFromActions
 } from "../../src/shell/build-effect-result-from-actions.ts";
 
+function buildCapabilityAction(
+  overrides: Partial<Action> = {}
+): Action {
+  return {
+    kind: "capability",
+    name: "controlled_single_file_text_modification",
+    input: {
+      target_path: "docs/notes.md",
+      change: {
+        kind: "replace_text",
+        find_text: "before",
+        replace_text: "after"
+      }
+    },
+    ...overrides
+  };
+}
+
 describe("build-effect-result-from-actions", () => {
   const validRequest: EffectRequest = {
     kind: "execute_actions",
@@ -17,7 +35,7 @@ describe("build-effect-result-from-actions", () => {
   };
 
   it("buildActionResultsPayload returns stable payload structure", () => {
-    const action: Action = { kind: "tool", name: "lint" };
+    const action = buildCapabilityAction();
     const results = [buildActionResult(action)];
 
     const payload = buildActionResultsPayload(results);
@@ -34,27 +52,59 @@ describe("build-effect-result-from-actions", () => {
 
   it("areAllActionResultsSuccessful returns true for all successful results", () => {
     const results = [
-      buildActionResult({ kind: "tool", name: "lint" }),
-      buildActionResult({ kind: "command", name: "test" })
+      buildActionResult(buildCapabilityAction()),
+      buildActionResult(
+        buildCapabilityAction({
+          input: {
+            target_path: "src/app/index.ts",
+            change: {
+              kind: "replace_text",
+              find_text: "alpha",
+              replace_text: "beta"
+            }
+          }
+        })
+      )
     ];
 
     expect(areAllActionResultsSuccessful(results)).toBe(true);
   });
 
   it("areAllActionResultsSuccessful returns false when any result fails", () => {
-    const results = [buildActionResult({ kind: "tool", name: "lint" }), buildActionResult(undefined)];
+    const results = [buildActionResult(buildCapabilityAction()), buildActionResult(undefined)];
 
     expect(areAllActionResultsSuccessful(results)).toBe(false);
   });
 
   it("buildEffectResultFromActionResults returns normalized EffectResult", () => {
-    const results = [buildActionResult({ kind: "tool", name: "lint" }), buildActionResult(undefined)];
+    const results = [
+      buildActionResult(buildCapabilityAction()),
+      buildActionResult(
+        buildCapabilityAction({
+          input: {
+            target_path: "../bad.md",
+            change: {
+              kind: "replace_text",
+              find_text: "a",
+              replace_text: "b"
+            }
+          }
+        })
+      )
+    ];
 
     const effectResult = buildEffectResultFromActionResults(validRequest, results);
 
     expect(effectResult).toMatchObject({
       kind: "action_results",
       success: false,
+      failure_signal: {
+        category: "action",
+        source: "shell",
+        terminal: false,
+        message: "refused: invalid single-file text path",
+        summary: "1 action(s) failed"
+      },
       context: {
         requestKind: "execute_actions",
         handled: true
@@ -84,7 +134,7 @@ describe("build-effect-result-from-actions", () => {
   });
 
   it("buildEffectResultFromSingleAction equals single-result aggregation", () => {
-    const action: Action = { kind: "tool", name: "lint" };
+    const action = buildCapabilityAction();
 
     const viaSingle = buildEffectResultFromSingleAction(validRequest, action);
     const viaAggregate = buildEffectResultFromActionResults(validRequest, [buildActionResult(action)]);
@@ -94,8 +144,17 @@ describe("build-effect-result-from-actions", () => {
 
   it("buildEffectResultFromActions matches map(buildActionResult) aggregation", () => {
     const actions: Action[] = [
-      { kind: "tool", name: "lint" },
-      { kind: "command", name: "test" }
+      buildCapabilityAction(),
+      buildCapabilityAction({
+        input: {
+          target_path: "src/core/build-effect-request.ts",
+          change: {
+            kind: "replace_text",
+            find_text: "before",
+            replace_text: "after"
+          }
+        }
+      })
     ];
 
     const fromActions = buildEffectResultFromActions(validRequest, actions);
@@ -108,21 +167,30 @@ describe("build-effect-result-from-actions", () => {
   });
 
   it("buildEffectResultFromActions(undefined, actions) matches current behavior", () => {
-    const actions: Action[] = [{ kind: "tool", name: "lint" }];
+    const actions: Action[] = [buildCapabilityAction()];
 
     expect(buildEffectResultFromActions(undefined, actions)).toBeUndefined();
   });
 
   it("canBuildEffectResultFromActions(undefined, actions) returns false", () => {
-    const actions: Action[] = [{ kind: "tool", name: "lint" }];
+    const actions: Action[] = [buildCapabilityAction()];
 
     expect(canBuildEffectResultFromActions(undefined, actions)).toBe(false);
   });
 
   it("canBuildEffectResultFromActions returns true for valid request and valid actions", () => {
     const actions: Action[] = [
-      { kind: "tool", name: "lint" },
-      { kind: "system", name: "sync" }
+      buildCapabilityAction(),
+      buildCapabilityAction({
+        input: {
+          target_path: "README.md",
+          change: {
+            kind: "replace_text",
+            find_text: "x",
+            replace_text: "y"
+          }
+        }
+      })
     ];
 
     expect(canBuildEffectResultFromActions(validRequest, actions)).toBe(true);
@@ -130,7 +198,7 @@ describe("build-effect-result-from-actions", () => {
 
   it("canBuildEffectResultFromActions returns false when actions contain invalid items", () => {
     const mixedActions = [
-      { kind: "tool", name: "lint" },
+      buildCapabilityAction(),
       { kind: "tool" }
     ] as unknown as Action[];
 

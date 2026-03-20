@@ -5,6 +5,7 @@ export * from "./failure-signal.js";
 export * from "./evidence.js";
 export * from "./context-packet.js";
 export * from "./action.js";
+export * from "./controlled-single-file-text-modification.js";
 export * from "./action-result.js";
 export * from "./review-request.js";
 export * from "./review-result.js";

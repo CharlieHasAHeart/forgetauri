@@ -8,12 +8,30 @@ import {
   executeEffectRequest
 } from "../../src/shell/execute-effect-request.ts";
 
+function buildCapabilityAction(
+  overrides: Partial<Action> = {}
+): Action {
+  return {
+    kind: "capability",
+    name: "controlled_single_file_text_modification",
+    input: {
+      target_path: "docs/notes.md",
+      change: {
+        kind: "replace_text",
+        find_text: "before",
+        replace_text: "after"
+      }
+    },
+    ...overrides
+  };
+}
+
 describe("executeEffectRequest - normal paths", () => {
   it("returns normalized action_results for valid execute_actions request", () => {
     const request: EffectRequest = {
       kind: "execute_actions",
       payload: {
-        actions: [{ kind: "tool", name: "format_code" }]
+        actions: [buildCapabilityAction()]
       }
     };
 
@@ -26,7 +44,7 @@ describe("executeEffectRequest - normal paths", () => {
     expect(result?.context).toEqual({ requestKind: "execute_actions", handled: true });
     expect(result?.payload).toEqual({
       count: 1,
-      results: [buildActionResult({ kind: "tool", name: "format_code" })]
+      results: [buildActionResult(buildCapabilityAction())]
     });
   });
 
@@ -48,8 +66,8 @@ describe("executeEffectRequest - normal paths", () => {
 
   it("keeps only valid actions when payload.actions contains mixed items", () => {
     const mixedActions = [
-      { kind: "tool", name: "run_tests" },
-      { kind: "tool" },
+      buildCapabilityAction(),
+      { kind: "capability" },
       "not-an-action"
     ] as unknown as Action[];
 
@@ -69,7 +87,7 @@ describe("executeEffectRequest - normal paths", () => {
     const results = Reflect.get(result?.payload as object, "results");
     expect(Array.isArray(results)).toBe(true);
     expect(results).toHaveLength(1);
-    expect(results).toEqual([buildActionResult({ kind: "tool", name: "run_tests" })]);
+    expect(results).toEqual([buildActionResult(buildCapabilityAction())]);
   });
 
   it("returns normalized review_result for valid run_review request", () => {
@@ -242,7 +260,7 @@ describe("canExecuteEffectRequest", () => {
   it("returns true for valid execute_actions request", () => {
     const request: EffectRequest = {
       kind: "execute_actions",
-      payload: { actions: [{ kind: "tool", name: "lint" }] }
+      payload: { actions: [buildCapabilityAction()] }
     };
 
     expect(canExecuteEffectRequest(request)).toBe(true);

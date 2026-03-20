@@ -294,3 +294,31 @@ Recommended entry structure:
 * repair/replan now act as minimal orchestration entry points with explicit waiting semantics instead of hold-only labels
 * runtime summary now shows not only hold reason but also waiting orchestration state for repair/replan
 * local full test suite remains green (`17/17` files, `142/142` tests)
+
+---
+
+## 2026-03-20 10:05 — stage 1.1 first capability contract defined
+
+### Changed
+
+* added a dedicated protocol contract for `controlled_single_file_text_modification` with:
+  * narrow single-file text input (`target_path` + `replace_text` change)
+  * explicit refusal codes (`invalid_path`, `unsupported_file_type`, `missing_target`, `empty_request`, `no_op_request`)
+  * minimal success/failure output and evidence shapes
+  * deterministic validation helpers
+* extended `ActionKind` with `capability` and exported the new capability contract through protocol index
+* updated shell action normalization to accept only the new capability action contract and normalize refusal/success payloads without implementing real file execution
+* refined effect-result failure message derivation to reuse capability refusal summary when available
+* updated shell tests to use capability actions and added dedicated contract coverage tests for all required refusal/success/failure cases
+
+### Scope
+
+* protocol contract surface
+* shell action/effect normalization
+* tests (contract and normalization)
+
+### Result
+
+* Task-Group 1.1 now has a narrow, explicit, test-covered first capability contract that stays on the existing runtime path (`EffectRequest -> Action[] -> ActionResult[] -> EffectResult`)
+* runtime semantics (`failure_signal`, waiting/stop handling, runtimeSummary) remain unchanged and continue to absorb results through existing Core logic
+* local full test suite passes (`18/18` files, `150/150` tests)
