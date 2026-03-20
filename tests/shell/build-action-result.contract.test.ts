@@ -1,20 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
 import { isActionResult, type Action } from "../../src/protocol/index.ts";
 import {
   buildActionResult,
   canBuildActionResult
 } from "../../src/shell/build-action-result.ts";
+import {
+  resetCapabilityWorkspaceFiles,
+  setupCapabilityWorkspace,
+  teardownCapabilityWorkspace,
+  type CapabilityWorkspace
+} from "../shared/capability-workspace-fixture.ts";
 
-function buildContractAction(overrides: Partial<Action> = {}): Action {
+function buildContractAction(
+  workspace: CapabilityWorkspace,
+  overrides: Partial<Action> = {}
+): Action {
   return {
     kind: "capability",
     name: "controlled_single_file_text_modification",
     input: {
-      target_path: "docs/notes.md",
+      target_path: workspace.primaryTargetPath,
       change: {
         kind: "replace_text",
-        find_text: "before",
-        replace_text: "after"
+        find_text: "before-one",
+        replace_text: "after-one"
       }
     },
     ...overrides
@@ -22,8 +32,22 @@ function buildContractAction(overrides: Partial<Action> = {}): Action {
 }
 
 describe("build-action-result contract", () => {
-  it("accepts valid contract shape", () => {
-    const result = buildActionResult(buildContractAction());
+  let workspace: CapabilityWorkspace;
+
+  beforeAll(() => {
+    workspace = setupCapabilityWorkspace();
+  });
+
+  beforeEach(() => {
+    resetCapabilityWorkspaceFiles(workspace);
+  });
+
+  afterAll(() => {
+    teardownCapabilityWorkspace(workspace);
+  });
+
+  it("accepts valid contract shape and applies real modification", () => {
+    const result = buildActionResult(buildContractAction(workspace));
 
     expect(isActionResult(result)).toBe(true);
     expect(result).toMatchObject({
@@ -33,29 +57,31 @@ describe("build-action-result contract", () => {
         applied: true,
         evidence: {
           capability: "controlled_single_file_text_modification",
-          target_path: "docs/notes.md",
+          target_path: workspace.primaryTargetPath,
           single_file: true,
           text_only: true,
           change_kind: "replace_text"
         }
       }
     });
-    expect(canBuildActionResult(buildContractAction())).toBe(true);
+    expect(canBuildActionResult(buildContractAction(workspace))).toBe(true);
+    expect(readFileSync(workspace.primaryTargetPath, "utf8")).toContain("after-one");
   });
 
   it("refuses invalid path", () => {
-    const result = buildActionResult(
-      buildContractAction({
-        input: {
-          target_path: "../secret.md",
-          change: {
-            kind: "replace_text",
-            find_text: "a",
-            replace_text: "b"
-          }
+    const action = buildContractAction(workspace, {
+      input: {
+        target_path: "../secret.md",
+        change: {
+          kind: "replace_text",
+          find_text: "a",
+          replace_text: "b"
         }
-      })
-    );
+      }
+    });
+    expect(canBuildActionResult(action)).toBe(true);
+
+    const result = buildActionResult(action);
 
     expect(result.status).toBe("failed");
     expect(result.errorMessage).toBe("invalid_path");
@@ -68,102 +94,100 @@ describe("build-action-result contract", () => {
   });
 
   it("refuses unsupported file type", () => {
-    const result = buildActionResult(
-      buildContractAction({
-        input: {
-          target_path: "assets/logo.png",
-          change: {
-            kind: "replace_text",
-            find_text: "a",
-            replace_text: "b"
-          }
+    const action = buildContractAction(workspace, {
+      input: {
+        target_path: "assets/logo.png",
+        change: {
+          kind: "replace_text",
+          find_text: "a",
+          replace_text: "b"
         }
-      })
-    );
+      }
+    });
+    expect(canBuildActionResult(action)).toBe(true);
+
+    const result = buildActionResult(action);
 
     expect(result.status).toBe("failed");
     expect(result.errorMessage).toBe("unsupported_file_type");
   });
 
-  it("refuses missing target", () => {
-    const result = buildActionResult(
-      buildContractAction({
-        input: {
-          target_path: "",
-          change: {
-            kind: "replace_text",
-            find_text: "a",
-            replace_text: "b"
-          }
+  it("refuses missing target path in request", () => {
+    const action = buildContractAction(workspace, {
+      input: {
+        target_path: "",
+        change: {
+          kind: "replace_text",
+          find_text: "a",
+          replace_text: "b"
         }
-      })
-    );
+      }
+    });
+    expect(canBuildActionResult(action)).toBe(true);
+
+    const result = buildActionResult(action);
 
     expect(result.status).toBe("failed");
     expect(result.errorMessage).toBe("missing_target");
+    expect(result.output).toMatchObject({
+      refusal: {
+        summary: "refused: missing target path in request"
+      }
+    });
   });
 
-  it("refuses empty request", () => {
-    const result = buildActionResult(
-      buildContractAction({
-        input: {
-          target_path: "docs/notes.md",
-          change: {
-            kind: "replace_text",
-            find_text: "",
-            replace_text: ""
-          }
+  it("refuses empty request when change is incomplete", () => {
+    const action = buildContractAction(workspace, {
+      input: {
+        target_path: workspace.primaryTargetPath,
+        change: {
+          kind: "replace_text",
+          find_text: "",
+          replace_text: ""
         }
-      })
-    );
+      }
+    });
+    expect(canBuildActionResult(action)).toBe(true);
+
+    const result = buildActionResult(action);
 
     expect(result.status).toBe("failed");
     expect(result.errorMessage).toBe("empty_request");
+    expect(result.output).toMatchObject({
+      refusal: {
+        summary: "refused: empty or incomplete text modification request"
+      }
+    });
   });
 
   it("refuses no-op request", () => {
-    const result = buildActionResult(
-      buildContractAction({
-        input: {
-          target_path: "docs/notes.md",
-          change: {
-            kind: "replace_text",
-            find_text: "same",
-            replace_text: "same"
-          }
+    const action = buildContractAction(workspace, {
+      input: {
+        target_path: workspace.primaryTargetPath,
+        change: {
+          kind: "replace_text",
+          find_text: "same",
+          replace_text: "same"
         }
-      })
-    );
+      }
+    });
+    expect(canBuildActionResult(action)).toBe(true);
+
+    const result = buildActionResult(action);
 
     expect(result.status).toBe("failed");
     expect(result.errorMessage).toBe("no_op_request");
   });
 
-  it("normalizes success payload with summary and evidence", () => {
-    const result = buildActionResult(buildContractAction());
-
-    expect(result).toMatchObject({
-      status: "succeeded",
-      output: {
-        applied: true,
-        summary: "contract accepted for docs/notes.md",
-        evidence: {
-          capability: "controlled_single_file_text_modification",
-          target_path: "docs/notes.md"
-        }
-      }
-    });
-  });
-
-  it("normalizes failure payload with refusal and evidence", () => {
+  it("normalizes execution failure for missing target file", () => {
     const result = buildActionResult(
-      buildContractAction({
+      buildContractAction(workspace, {
         input: {
-          target_path: "../invalid.md",
+          target_path: "docs/missing.md",
           change: {
             kind: "replace_text",
-            find_text: "x",
-            replace_text: "y"
+            find_text: "old",
+            replace_text: "new"
           }
         }
       })
@@ -171,32 +195,124 @@ describe("build-action-result contract", () => {
 
     expect(result).toMatchObject({
       status: "failed",
-      errorMessage: "invalid_path",
+      errorMessage: "target_file_missing",
       output: {
         applied: false,
-        refusal: {
-          code: "invalid_path",
-          summary: "refused: invalid single-file text path"
-        },
-        evidence: {
-          capability: "controlled_single_file_text_modification",
-          target_path: "../invalid.md"
+        execution_failure: {
+          code: "target_file_missing",
+          summary: "execution_failed: target file not found (docs/missing.md)"
         }
       }
     });
-    expect(
-      canBuildActionResult(
-        buildContractAction({
+  });
+
+  it("normalizes execution failure when find_text is not found", () => {
+    const result = buildActionResult(
+      buildContractAction(workspace, {
+        input: {
+          target_path: workspace.primaryTargetPath,
+          change: {
+            kind: "replace_text",
+            find_text: "not-present",
+            replace_text: "new"
+          }
+        }
+      })
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      errorMessage: "find_text_not_found",
+      output: {
+        applied: false,
+        execution_failure: {
+          code: "find_text_not_found"
+        }
+      }
+    });
+  });
+
+  it("normalizes execution failure when file read fails", () => {
+    const targetPath = "docs/no-read.md";
+    writeFileSync(targetPath, "read-block", "utf8");
+    chmodSync(targetPath, 0o000);
+    try {
+      const result = buildActionResult(
+        buildContractAction(workspace, {
           input: {
-            target_path: "",
+            target_path: targetPath,
             change: {
               kind: "replace_text",
-              find_text: "a",
-              replace_text: "b"
+              find_text: "read",
+              replace_text: "write"
             }
           }
         })
-      )
+      );
+
+      expect(result).toMatchObject({
+        status: "failed",
+        errorMessage: "file_read_failed",
+        output: {
+          applied: false,
+          execution_failure: {
+            code: "file_read_failed"
+          }
+        }
+      });
+    } finally {
+      chmodSync(targetPath, 0o644);
+    }
+  });
+
+  it("normalizes execution failure when file write fails", () => {
+    const targetPath = "docs/no-write.md";
+    writeFileSync(targetPath, "needs replace", "utf8");
+    chmodSync(targetPath, 0o444);
+    try {
+      const result = buildActionResult(
+        buildContractAction(workspace, {
+          input: {
+            target_path: targetPath,
+            change: {
+              kind: "replace_text",
+              find_text: "replace",
+              replace_text: "updated"
+            }
+          }
+        })
+      );
+
+      expect(result).toMatchObject({
+        status: "failed",
+        errorMessage: "file_write_failed",
+        output: {
+          applied: false,
+          execution_failure: {
+            code: "file_write_failed"
+          }
+        }
+      });
+    } finally {
+      chmodSync(targetPath, 0o644);
+    }
+  });
+
+  it("returns false only when action is not recognizable as capability contract", () => {
+    expect(canBuildActionResult(undefined)).toBe(false);
+    expect(
+      canBuildActionResult({
+        kind: "tool",
+        name: "lint"
+      } as Action)
+    ).toBe(false);
+    expect(
+      canBuildActionResult({
+        kind: "capability",
+        name: "other_capability",
+        input: {}
+      } as Action)
     ).toBe(false);
   });
 });
+

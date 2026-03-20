@@ -53,9 +53,29 @@ export interface ControlledSingleFileTextModificationFailure {
   evidence: ControlledSingleFileTextModificationEvidence;
 }
 
+export const CONTROLLED_SINGLE_FILE_TEXT_MODIFICATION_EXECUTION_FAILURE_CODES = [
+  "target_file_missing",
+  "find_text_not_found",
+  "file_read_failed",
+  "file_write_failed"
+] as const;
+
+export type ControlledSingleFileTextModificationExecutionFailureCode =
+  (typeof CONTROLLED_SINGLE_FILE_TEXT_MODIFICATION_EXECUTION_FAILURE_CODES)[number];
+
+export interface ControlledSingleFileTextModificationExecutionFailure {
+  applied: false;
+  execution_failure: {
+    code: ControlledSingleFileTextModificationExecutionFailureCode;
+    summary: string;
+  };
+  evidence: ControlledSingleFileTextModificationEvidence;
+}
+
 export type ControlledSingleFileTextModificationActionOutput =
   | ControlledSingleFileTextModificationSuccess
-  | ControlledSingleFileTextModificationFailure;
+  | ControlledSingleFileTextModificationFailure
+  | ControlledSingleFileTextModificationExecutionFailure;
 
 export type ControlledSingleFileTextModificationValidation =
   | { accepted: true; input: ControlledSingleFileTextModificationInput }
@@ -148,6 +168,9 @@ export function isControlledSingleFileTextModificationInput(
 export function validateControlledSingleFileTextModificationInput(
   value: unknown
 ): ControlledSingleFileTextModificationValidation {
+  // Stage 1.1 contract-only semantics:
+  // missing_target means target path field is missing/blank in request input,
+  // not filesystem existence of the referenced file.
   if (typeof value !== "object" || value === null) {
     return { accepted: false, refusalCode: "empty_request" };
   }
@@ -167,6 +190,8 @@ export function validateControlledSingleFileTextModificationInput(
   }
 
   const change = Reflect.get(value, "change");
+  // empty_request is reserved for missing/incomplete/empty change intent,
+  // and intentionally does not encode target-file existence checks in Stage 1.1.
   if (typeof change !== "object" || change === null) {
     return { accepted: false, refusalCode: "empty_request" };
   }
@@ -215,13 +240,31 @@ export function buildControlledSingleFileTextModificationRefusalSummary(
   }
 
   if (code === "missing_target") {
-    return "refused: missing target path";
+    return "refused: missing target path in request";
   }
 
   if (code === "empty_request") {
-    return "refused: empty text modification request";
+    return "refused: empty or incomplete text modification request";
   }
 
   return "refused: no-op text modification request";
 }
 
+export function buildControlledSingleFileTextModificationExecutionFailureSummary(
+  code: ControlledSingleFileTextModificationExecutionFailureCode,
+  targetPath: string
+): string {
+  if (code === "target_file_missing") {
+    return `execution_failed: target file not found (${targetPath})`;
+  }
+
+  if (code === "find_text_not_found") {
+    return `execution_failed: find_text not found in ${targetPath}`;
+  }
+
+  if (code === "file_read_failed") {
+    return `execution_failed: failed to read ${targetPath}`;
+  }
+
+  return `execution_failed: failed to write ${targetPath}`;
+}

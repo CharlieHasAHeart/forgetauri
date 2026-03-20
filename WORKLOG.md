@@ -322,3 +322,94 @@ Recommended entry structure:
 * Task-Group 1.1 now has a narrow, explicit, test-covered first capability contract that stays on the existing runtime path (`EffectRequest -> Action[] -> ActionResult[] -> EffectResult`)
 * runtime semantics (`failure_signal`, waiting/stop handling, runtimeSummary) remain unchanged and continue to absorb results through existing Core logic
 * local full test suite passes (`18/18` files, `150/150` tests)
+
+---
+
+## 2026-03-20 14:38 — stage 1.1 boundary semantics tightened before task-group 1.2
+
+### Changed
+
+* adjusted `canBuildActionResult` semantics in `src/shell/build-action-result.ts`:
+  * recognized `controlled_single_file_text_modification` capability actions now return buildable `true` even when they normalize to refusal/failed results
+  * kept `buildActionResult` success/refusal normalization path unchanged
+* clarified contract wording in `src/protocol/controlled-single-file-text-modification.ts`:
+  * `missing_target` explicitly means missing/blank target path in request input
+  * `empty_request` explicitly means missing/incomplete/empty change intent
+  * did not introduce filesystem existence checks or new refusal codes
+* updated shell tests to lock the new boundary semantics (buildability for refusal inputs and clarified refusal summaries)
+
+### Scope
+
+* shell action buildability boundary
+* protocol refusal-boundary wording
+* shell contract tests
+
+### Result
+
+* Stage 1.1 contract boundary is now internally consistent: recognizable capability inputs are always normalizable via existing `ActionResult` path
+* refusal handling remains normalized and stable without changing runtime semantics (`failure_signal` / waiting / stop / runtimeSummary)
+* local full test suite passes (`18/18` files, `152/152` tests)
+
+---
+
+## 2026-03-20 14:57 — stage 1.2 minimal real shell execution path connected
+
+### Changed
+
+* added a narrow shell executor `src/shell/execute-controlled-single-file-text-modification.ts` for the single capability `controlled_single_file_text_modification`:
+  * read target text file
+  * apply one `find_text -> replace_text`
+  * write file back
+* kept Stage 1.1 contract refusal flow unchanged; contract refusal still normalizes as refusal-style failed `ActionResult`
+* added execution-failure normalization (separate from refusal) in protocol/action output for:
+  * `target_file_missing`
+  * `find_text_not_found`
+  * `file_read_failed`
+  * `file_write_failed`
+* wired real execution into `src/shell/build-action-result.ts` only after contract acceptance
+* kept existing `EffectRequest -> Action[] -> ActionResult[] -> EffectResult` path and updated `build-effect-result-from-actions` to surface execution failure summaries in aggregated `failure_signal.message`
+* added a shared temp-workspace fixture for shell tests and updated shell/integration tests to cover:
+  * real success path
+  * contract refusal path
+  * execution failures (missing file / find-text miss / read/write failure)
+  * `ActionResult -> EffectResult` failure aggregation consistency
+
+### Scope
+
+* shell capability execution bridge
+* protocol action-output failure shape
+* shell/integration tests
+
+### Result
+
+* first capability now executes real single-file text modification through the existing shell/runtime path without introducing a second execution model
+* contract refusal and execution failure are explicitly separated while remaining protocol-normalized and Core-compatible
+* local full test suite passes (`18/18` files, `157/157` tests)
+
+---
+
+## 2026-03-20 15:04 — stage 1.3 kernel validation e2e path added
+
+### Changed
+
+* added a dedicated core e2e validation test `tests/core/kernel-validation-real-capability.e2e.test.ts` that runs the real first capability through the existing runtime chain:
+  * Core tick bootstrap (`runRuntimeTick`)
+  * Shell real execution (`executeShellRuntimeRequest`)
+  * Core absorb/summary update (`runRuntimeTick` with returned `EffectResult`)
+* covered required Stage 1.3 branches under real capability context:
+  * success
+  * non-terminal failure (`target_file_missing`, `find_text_not_found`)
+  * terminal failure (via existing terminal `failure_signal` entry path)
+  * review continue / repair / replan / stop
+* asserted runtimeSummary coherence and request/result/failure alignment for each branch without introducing a second runtime path
+
+### Scope
+
+* core kernel-validation tests
+* stage-level semantic regression coverage
+
+### Result
+
+* Stage 1 now has a real capability end-to-end validation path that demonstrates semantic stability of Core/Shell integration under real execution
+* runtimeSummary/request/result/failure behavior remains aligned with current Core semantics across continue/hold/terminal and review branches
+* local full test suite passes (`19/19` files, `165/165` tests)

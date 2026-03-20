@@ -1,4 +1,5 @@
 import {
+  buildControlledSingleFileTextModificationExecutionFailureSummary,
   buildControlledSingleFileTextModificationRefusalSummary,
   isAction,
   isActionKind,
@@ -6,9 +7,11 @@ import {
   validateControlledSingleFileTextModificationInput,
   type Action,
   type ActionResult,
+  type ControlledSingleFileTextModificationExecutionFailure,
   type ControlledSingleFileTextModificationFailure,
   type ControlledSingleFileTextModificationSuccess
 } from "../protocol/index.js";
+import { executeControlledSingleFileTextModification } from "./execute-controlled-single-file-text-modification.js";
 
 export function normalizeActionName(actionName: string | undefined): string {
   return actionName ?? "unknown-action";
@@ -32,10 +35,16 @@ export function buildAcceptedActionResult(action: Action): ActionResult {
     );
   }
 
-  return buildControlledSingleFileTextModificationSucceededActionResult(
-    action.name,
-    validation.input.target_path
-  );
+  const executionResult = executeControlledSingleFileTextModification(validation.input);
+  if (!executionResult.success) {
+    return buildControlledSingleFileTextModificationExecutionFailedActionResult(
+      action.name,
+      executionResult.code,
+      executionResult.targetPath
+    );
+  }
+
+  return buildControlledSingleFileTextModificationSucceededActionResult(action.name, executionResult.targetPath);
 }
 
 export function buildControlledSingleFileTextModificationSucceededActionResult(
@@ -44,7 +53,7 @@ export function buildControlledSingleFileTextModificationSucceededActionResult(
 ): ActionResult {
   const output: ControlledSingleFileTextModificationSuccess = {
     applied: true,
-    summary: `contract accepted for ${targetPath}`,
+    summary: `applied replace_text to ${targetPath}`,
     evidence: {
       capability: "controlled_single_file_text_modification",
       target_path: targetPath,
@@ -106,6 +115,41 @@ export function buildControlledSingleFileTextModificationFailedActionResult(
   };
 }
 
+export function buildControlledSingleFileTextModificationExecutionFailedActionResult(
+  actionName: string,
+  executionCode:
+    | "target_file_missing"
+    | "find_text_not_found"
+    | "file_read_failed"
+    | "file_write_failed",
+  targetPath: string
+): ActionResult {
+  const output: ControlledSingleFileTextModificationExecutionFailure = {
+    applied: false,
+    execution_failure: {
+      code: executionCode,
+      summary: buildControlledSingleFileTextModificationExecutionFailureSummary(
+        executionCode,
+        targetPath
+      )
+    },
+    evidence: {
+      capability: "controlled_single_file_text_modification",
+      target_path: targetPath,
+      single_file: true,
+      text_only: true,
+      change_kind: "replace_text"
+    }
+  };
+
+  return {
+    status: "failed",
+    actionName,
+    errorMessage: executionCode,
+    output
+  };
+}
+
 export function buildInvalidActionResult(
   actionName: string | undefined,
   reason: string | undefined
@@ -160,5 +204,7 @@ export function canBuildActionResult(action: Action | undefined): boolean {
     return false;
   }
 
-  return validateControlledSingleFileTextModificationInput(action.input).accepted;
+  // Buildability is broader than acceptance:
+  // recognizable contract actions can always be normalized into succeeded/failed ActionResult.
+  return true;
 }

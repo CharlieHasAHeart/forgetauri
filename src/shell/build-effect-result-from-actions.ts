@@ -53,9 +53,19 @@ export function buildFailureSignalFromActionResults(
     typeof refusal === "object" && refusal !== null
       ? Reflect.get(refusal, "summary")
       : undefined;
+  const executionFailure =
+    typeof firstFailure.output === "object" && firstFailure.output !== null
+      ? Reflect.get(firstFailure.output, "execution_failure")
+      : undefined;
+  const executionSummary =
+    typeof executionFailure === "object" && executionFailure !== null
+      ? Reflect.get(executionFailure, "summary")
+      : undefined;
   const normalizedMessage =
     typeof refusalSummary === "string"
       ? refusalSummary
+      : typeof executionSummary === "string"
+        ? executionSummary
       : firstFailure.errorMessage ?? "action_execution_failed";
 
   return {

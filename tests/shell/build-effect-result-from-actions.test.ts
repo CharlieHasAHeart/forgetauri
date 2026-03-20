@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type Action, type EffectRequest } from "../../src/protocol/index.ts";
 import { buildActionResult } from "../../src/shell/build-action-result.ts";
 import {
@@ -9,19 +9,26 @@ import {
   buildEffectResultFromSingleAction,
   canBuildEffectResultFromActions
 } from "../../src/shell/build-effect-result-from-actions.ts";
+import {
+  resetCapabilityWorkspaceFiles,
+  setupCapabilityWorkspace,
+  teardownCapabilityWorkspace,
+  type CapabilityWorkspace
+} from "../shared/capability-workspace-fixture.ts";
 
 function buildCapabilityAction(
+  workspace: CapabilityWorkspace,
   overrides: Partial<Action> = {}
 ): Action {
   return {
     kind: "capability",
     name: "controlled_single_file_text_modification",
     input: {
-      target_path: "docs/notes.md",
+      target_path: workspace.primaryTargetPath,
       change: {
         kind: "replace_text",
-        find_text: "before",
-        replace_text: "after"
+        find_text: "before-one",
+        replace_text: "after-one"
       }
     },
     ...overrides
@@ -29,13 +36,27 @@ function buildCapabilityAction(
 }
 
 describe("build-effect-result-from-actions", () => {
+  let workspace: CapabilityWorkspace;
+
+  beforeAll(() => {
+    workspace = setupCapabilityWorkspace();
+  });
+
+  beforeEach(() => {
+    resetCapabilityWorkspaceFiles(workspace);
+  });
+
+  afterAll(() => {
+    teardownCapabilityWorkspace(workspace);
+  });
+
   const validRequest: EffectRequest = {
     kind: "execute_actions",
     payload: {}
   };
 
   it("buildActionResultsPayload returns stable payload structure", () => {
-    const action = buildCapabilityAction();
+    const action = buildCapabilityAction(workspace);
     const results = [buildActionResult(action)];
 
     const payload = buildActionResultsPayload(results);
@@ -52,11 +73,11 @@ describe("build-effect-result-from-actions", () => {
 
   it("areAllActionResultsSuccessful returns true for all successful results", () => {
     const results = [
-      buildActionResult(buildCapabilityAction()),
+      buildActionResult(buildCapabilityAction(workspace)),
       buildActionResult(
-        buildCapabilityAction({
+        buildCapabilityAction(workspace, {
           input: {
-            target_path: "src/app/index.ts",
+            target_path: workspace.secondaryTargetPath,
             change: {
               kind: "replace_text",
               find_text: "alpha",
@@ -71,16 +92,16 @@ describe("build-effect-result-from-actions", () => {
   });
 
   it("areAllActionResultsSuccessful returns false when any result fails", () => {
-    const results = [buildActionResult(buildCapabilityAction()), buildActionResult(undefined)];
+    const results = [buildActionResult(buildCapabilityAction(workspace)), buildActionResult(undefined)];
 
     expect(areAllActionResultsSuccessful(results)).toBe(false);
   });
 
-  it("buildEffectResultFromActionResults returns normalized EffectResult", () => {
+  it("buildEffectResultFromActionResults normalizes contract refusal failures", () => {
     const results = [
-      buildActionResult(buildCapabilityAction()),
+      buildActionResult(buildCapabilityAction(workspace)),
       buildActionResult(
-        buildCapabilityAction({
+        buildCapabilityAction(workspace, {
           input: {
             target_path: "../bad.md",
             change: {
@@ -116,6 +137,37 @@ describe("build-effect-result-from-actions", () => {
     });
   });
 
+  it("buildEffectResultFromActionResults normalizes execution failures into failure_signal", () => {
+    const results = [
+      buildActionResult(
+        buildCapabilityAction(workspace, {
+          input: {
+            target_path: "docs/missing.md",
+            change: {
+              kind: "replace_text",
+              find_text: "a",
+              replace_text: "b"
+            }
+          }
+        })
+      )
+    ];
+
+    const effectResult = buildEffectResultFromActionResults(validRequest, results);
+
+    expect(effectResult).toMatchObject({
+      kind: "action_results",
+      success: false,
+      failure_signal: {
+        category: "action",
+        source: "shell",
+        terminal: false,
+        message: "execution_failed: target file not found (docs/missing.md)",
+        summary: "1 action(s) failed"
+      }
+    });
+  });
+
   it("buildEffectResultFromActionResults handles empty results stably", () => {
     const effectResult = buildEffectResultFromActionResults(validRequest, []);
 
@@ -134,9 +186,10 @@ describe("build-effect-result-from-actions", () => {
   });
 
   it("buildEffectResultFromSingleAction equals single-result aggregation", () => {
-    const action = buildCapabilityAction();
+    const action = buildCapabilityAction(workspace);
 
     const viaSingle = buildEffectResultFromSingleAction(validRequest, action);
+    resetCapabilityWorkspaceFiles(workspace);
     const viaAggregate = buildEffectResultFromActionResults(validRequest, [buildActionResult(action)]);
 
     expect(viaSingle).toEqual(viaAggregate);
@@ -144,50 +197,51 @@ describe("build-effect-result-from-actions", () => {
 
   it("buildEffectResultFromActions matches map(buildActionResult) aggregation", () => {
     const actions: Action[] = [
-      buildCapabilityAction(),
-      buildCapabilityAction({
+      buildCapabilityAction(workspace),
+      buildCapabilityAction(workspace, {
         input: {
-          target_path: "src/core/build-effect-request.ts",
+          target_path: workspace.secondaryTargetPath,
           change: {
             kind: "replace_text",
-            find_text: "before",
-            replace_text: "after"
+            find_text: "alpha",
+            replace_text: "after-alpha"
           }
         }
       })
     ];
 
-    const fromActions = buildEffectResultFromActions(validRequest, actions);
     const expected = buildEffectResultFromActionResults(
       validRequest,
       actions.map((action) => buildActionResult(action))
     );
+    resetCapabilityWorkspaceFiles(workspace);
+    const fromActions = buildEffectResultFromActions(validRequest, actions);
 
     expect(fromActions).toEqual(expected);
   });
 
   it("buildEffectResultFromActions(undefined, actions) matches current behavior", () => {
-    const actions: Action[] = [buildCapabilityAction()];
+    const actions: Action[] = [buildCapabilityAction(workspace)];
 
     expect(buildEffectResultFromActions(undefined, actions)).toBeUndefined();
   });
 
   it("canBuildEffectResultFromActions(undefined, actions) returns false", () => {
-    const actions: Action[] = [buildCapabilityAction()];
+    const actions: Action[] = [buildCapabilityAction(workspace)];
 
     expect(canBuildEffectResultFromActions(undefined, actions)).toBe(false);
   });
 
-  it("canBuildEffectResultFromActions returns true for valid request and valid actions", () => {
+  it("canBuildEffectResultFromActions returns true for recognizable contract actions, including refusal inputs", () => {
     const actions: Action[] = [
-      buildCapabilityAction(),
-      buildCapabilityAction({
+      buildCapabilityAction(workspace),
+      buildCapabilityAction(workspace, {
         input: {
-          target_path: "README.md",
+          target_path: "",
           change: {
             kind: "replace_text",
             find_text: "x",
-            replace_text: "y"
+            replace_text: "z"
           }
         }
       })
@@ -198,7 +252,7 @@ describe("build-effect-result-from-actions", () => {
 
   it("canBuildEffectResultFromActions returns false when actions contain invalid items", () => {
     const mixedActions = [
-      buildCapabilityAction(),
+      buildCapabilityAction(workspace),
       { kind: "tool" }
     ] as unknown as Action[];
 

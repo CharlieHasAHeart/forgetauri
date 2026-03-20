@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type Action, type EffectRequest } from "../../src/protocol/index.ts";
 import { executeEffectRequest } from "../../src/shell/execute-effect-request.ts";
 import { executeShellRuntimeRequest } from "../../src/shell/execute-shell-runtime-request.ts";
@@ -8,19 +8,26 @@ import {
   minimalPlan,
   minimalTasks
 } from "../shared/minimal-runtime-fixtures.ts";
+import {
+  resetCapabilityWorkspaceFiles,
+  setupCapabilityWorkspace,
+  teardownCapabilityWorkspace,
+  type CapabilityWorkspace
+} from "../shared/capability-workspace-fixture.ts";
 
 function buildCapabilityAction(
+  workspace: CapabilityWorkspace,
   overrides: Partial<Action> = {}
 ): Action {
   return {
     kind: "capability",
     name: "controlled_single_file_text_modification",
     input: {
-      target_path: "docs/notes.md",
+      target_path: workspace.primaryTargetPath,
       change: {
         kind: "replace_text",
-        find_text: "before",
-        replace_text: "after"
+        find_text: "before-one",
+        replace_text: "after-one"
       }
     },
     ...overrides
@@ -28,6 +35,20 @@ function buildCapabilityAction(
 }
 
 describe("executeShellRuntimeRequest", () => {
+  let workspace: CapabilityWorkspace;
+
+  beforeAll(() => {
+    workspace = setupCapabilityWorkspace();
+  });
+
+  beforeEach(() => {
+    resetCapabilityWorkspaceFiles(workspace);
+  });
+
+  afterAll(() => {
+    teardownCapabilityWorkspace(workspace);
+  });
+
   it("returns undefined when request is undefined", () => {
     expect(executeShellRuntimeRequest(undefined)).toBeUndefined();
   });
@@ -36,11 +57,12 @@ describe("executeShellRuntimeRequest", () => {
     const request: EffectRequest = {
       kind: "execute_actions",
       payload: {
-        actions: [buildCapabilityAction()]
+        actions: [buildCapabilityAction(workspace)]
       }
     };
 
     const direct = executeShellRuntimeRequest(request);
+    resetCapabilityWorkspaceFiles(workspace);
     const expected = executeEffectRequest(request);
 
     expect(direct).toEqual(expected);
