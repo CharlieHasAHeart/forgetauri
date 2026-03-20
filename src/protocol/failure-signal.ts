@@ -1,3 +1,6 @@
+import { isEvidenceRefArray, type EvidenceRef } from "./evidence.js";
+import { isRequestRef, type RequestRef } from "./request-ref.js";
+
 // Protocol-layer standardized failure signal; keep it serializable across boundaries.
 export const FAILURE_CATEGORIES = ["action", "review", "runtime"] as const;
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
@@ -11,6 +14,8 @@ export interface FailureSignal {
   terminal: boolean;
   message?: string;
   summary?: string;
+  request_ref?: RequestRef;
+  evidence_refs?: EvidenceRef[];
 }
 
 export function isFailureCategory(value: unknown): value is FailureCategory {
@@ -37,6 +42,8 @@ export function isFailureSignal(value: unknown): value is FailureSignal {
   const terminal = Reflect.get(value, "terminal");
   const message = Reflect.get(value, "message");
   const summary = Reflect.get(value, "summary");
+  const requestRef = Reflect.get(value, "request_ref");
+  const evidenceRefs = Reflect.get(value, "evidence_refs");
 
   if (
     !isFailureCategory(category) ||
@@ -48,7 +55,9 @@ export function isFailureSignal(value: unknown): value is FailureSignal {
 
   return (
     (message === undefined || typeof message === "string") &&
-    (summary === undefined || typeof summary === "string")
+    (summary === undefined || typeof summary === "string") &&
+    (requestRef === undefined || isRequestRef(requestRef)) &&
+    (evidenceRefs === undefined || isEvidenceRefArray(evidenceRefs))
   );
 }
 

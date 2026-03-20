@@ -91,6 +91,49 @@ describe("executeEffectRequest - normal paths", () => {
     expect(result?.payload).toEqual({ count: 0, results: [] });
   });
 
+  it("propagates request_ref through execute_actions result and failure signal", () => {
+    const requestRef = {
+      run_id: "run-1",
+      plan_id: "plan-1",
+      task_id: "task-1",
+      request_kind: "execute_actions" as const
+    };
+    const request: EffectRequest = {
+      kind: "execute_actions",
+      request_ref: requestRef,
+      payload: {
+        actions: [
+          buildCapabilityAction(workspace, {
+            input: {
+              target_path: "docs/missing.md",
+              change: {
+                kind: "replace_text",
+                find_text: "old",
+                replace_text: "new"
+              }
+            }
+          })
+        ]
+      }
+    };
+
+    const result = executeEffectRequest(request);
+
+    expect(result).toMatchObject({
+      kind: "action_results",
+      success: false,
+      request_ref: requestRef,
+      context: {
+        requestKind: "execute_actions",
+        request_ref: requestRef,
+        handled: true
+      },
+      failure_signal: {
+        request_ref: requestRef
+      }
+    });
+  });
+
   it("keeps only valid actions when payload.actions contains mixed items", () => {
     const mixedActions = [
       buildCapabilityAction(workspace),
@@ -154,6 +197,39 @@ describe("executeEffectRequest - normal paths", () => {
     });
   });
 
+  it("returns action_results failure for policy-refused path boundary", () => {
+    const request: EffectRequest = {
+      kind: "execute_actions",
+      payload: {
+        actions: [
+          buildCapabilityAction(workspace, {
+            input: {
+              target_path: "scripts/missing.md",
+              change: {
+                kind: "replace_text",
+                find_text: "old",
+                replace_text: "new"
+              }
+            }
+          })
+        ]
+      }
+    };
+
+    const result = executeEffectRequest(request);
+
+    expect(result).toBeDefined();
+    expect(result?.kind).toBe("action_results");
+    expect(result?.success).toBe(false);
+    expect(result).toMatchObject({
+      failure_signal: {
+        terminal: false,
+        message:
+          "policy_refused: target path outside allowed boundary (scripts/missing.md)"
+      }
+    });
+  });
+
   it("returns action_results failure for execution error when find_text is not found", () => {
     const request: EffectRequest = {
       kind: "execute_actions",
@@ -182,6 +258,32 @@ describe("executeEffectRequest - normal paths", () => {
       failure_signal: {
         terminal: false,
         message: `execution_failed: find_text not found in ${workspace.primaryTargetPath}`
+      }
+    });
+  });
+
+  it("treats malformed request_ref as invalid effect request boundary", () => {
+    const request = {
+      kind: "execute_actions",
+      request_ref: {
+        run_id: "run-1",
+        plan_id: "plan-1",
+        task_id: "",
+        request_kind: "execute_actions"
+      },
+      payload: { actions: [buildCapabilityAction(workspace)] }
+    } as unknown as EffectRequest;
+
+    const result = executeEffectRequest(request);
+
+    expect(result).toMatchObject({
+      kind: "action_results",
+      success: false,
+      payload: {
+        reason: "invalid_effect_request"
+      },
+      context: {
+        handled: false
       }
     });
   });

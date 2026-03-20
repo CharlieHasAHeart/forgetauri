@@ -8,9 +8,12 @@ import {
 } from "./run-agent.js";
 import {
   type AgentProfile,
+  cloneAgentProfile,
+  getActiveAgentProfile,
   getDefaultProfile,
   isReviewEnabled,
   isShellExecutionAllowed,
+  setActiveAgentProfile,
   resolveProfileMaxSteps,
   shouldAutoRunToCompletion
 } from "../profiles/default-profile.js";
@@ -24,7 +27,7 @@ export interface RunAgentWithProfileInput {
 
 export function resolveAgentProfile(profile: AgentProfile | undefined): AgentProfile {
   if (profile) {
-    return { ...profile };
+    return cloneAgentProfile(profile);
   }
 
   return getDefaultProfile();
@@ -50,15 +53,22 @@ export function runAgentWithProfile(input: RunAgentWithProfileInput): RunAgentOu
     return { state: input.state };
   }
 
+  const previousProfile = getActiveAgentProfile();
+  setActiveAgentProfile(profile);
+
   const reviewEnabled = isReviewEnabled(profile);
   void reviewEnabled;
 
-  if (shouldAutoRunToCompletion(profile)) {
-    const runInput = buildRunAgentInputFromProfile(input);
-    return runAgent(runInput);
-  }
+  try {
+    if (shouldAutoRunToCompletion(profile)) {
+      const runInput = buildRunAgentInputFromProfile(input);
+      return runAgent(runInput);
+    }
 
-  return { state: runAgentOnce(input.state, input.plan, input.tasks) };
+    return { state: runAgentOnce(input.state, input.plan, input.tasks) };
+  } finally {
+    setActiveAgentProfile(previousProfile);
+  }
 }
 
 export function runAgentWithDefaultProfile(
@@ -81,9 +91,16 @@ export function runAgentToProfileCompletion(
     return state;
   }
 
-  if (shouldAutoRunToCompletion(resolvedProfile)) {
-    return runAgentToCompletion(state, plan, tasks);
-  }
+  const previousProfile = getActiveAgentProfile();
+  setActiveAgentProfile(resolvedProfile);
 
-  return runAgentOnce(state, plan, tasks);
+  try {
+    if (shouldAutoRunToCompletion(resolvedProfile)) {
+      return runAgentToCompletion(state, plan, tasks);
+    }
+
+    return runAgentOnce(state, plan, tasks);
+  } finally {
+    setActiveAgentProfile(previousProfile);
+  }
 }

@@ -112,6 +112,58 @@ describe("build-action-result contract", () => {
     expect(result.errorMessage).toBe("unsupported_file_type");
   });
 
+  it("refuses by policy when path is outside allowed boundary", () => {
+    const action = buildContractAction(workspace, {
+      input: {
+        target_path: "scripts/notes.md",
+        change: {
+          kind: "replace_text",
+          find_text: "a",
+          replace_text: "b"
+        }
+      }
+    });
+    expect(canBuildActionResult(action)).toBe(true);
+
+    const result = buildActionResult(action);
+
+    expect(result.status).toBe("failed");
+    expect(result.errorMessage).toBe("path_outside_boundary");
+    expect(result.output).toMatchObject({
+      applied: false,
+      policy_violation: {
+        code: "path_outside_boundary",
+        summary: "policy_refused: target path outside allowed boundary (scripts/notes.md)"
+      }
+    });
+  });
+
+  it("refuses by policy when file type is disallowed by policy", () => {
+    const action = buildContractAction(workspace, {
+      input: {
+        target_path: "docs/notes.json",
+        change: {
+          kind: "replace_text",
+          find_text: "a",
+          replace_text: "b"
+        }
+      }
+    });
+    expect(canBuildActionResult(action)).toBe(true);
+
+    const result = buildActionResult(action);
+
+    expect(result.status).toBe("failed");
+    expect(result.errorMessage).toBe("disallowed_file_type");
+    expect(result.output).toMatchObject({
+      applied: false,
+      policy_violation: {
+        code: "disallowed_file_type",
+        summary: "policy_refused: target file type is not allowed by policy (docs/notes.json)"
+      }
+    });
+  });
+
   it("refuses missing target path in request", () => {
     const action = buildContractAction(workspace, {
       input: {
@@ -202,6 +254,86 @@ describe("build-action-result contract", () => {
           code: "target_file_missing",
           summary: "execution_failed: target file not found (docs/missing.md)"
         }
+      }
+    });
+  });
+
+  it("keeps contract refusal distinct from policy violation", () => {
+    const contractRefusal = buildActionResult(
+      buildContractAction(workspace, {
+        input: {
+          target_path: "../bad.md",
+          change: {
+            kind: "replace_text",
+            find_text: "a",
+            replace_text: "b"
+          }
+        }
+      })
+    );
+    const policyRefusal = buildActionResult(
+      buildContractAction(workspace, {
+        input: {
+          target_path: "scripts/notes.md",
+          change: {
+            kind: "replace_text",
+            find_text: "a",
+            replace_text: "b"
+          }
+        }
+      })
+    );
+
+    expect(contractRefusal.errorMessage).toBe("invalid_path");
+    expect(contractRefusal.output).toMatchObject({
+      refusal: {
+        code: "invalid_path"
+      }
+    });
+    expect(policyRefusal.errorMessage).toBe("path_outside_boundary");
+    expect(policyRefusal.output).toMatchObject({
+      policy_violation: {
+        code: "path_outside_boundary"
+      }
+    });
+  });
+
+  it("keeps policy violation distinct from execution failure", () => {
+    const policyRefusal = buildActionResult(
+      buildContractAction(workspace, {
+        input: {
+          target_path: "scripts/notes.md",
+          change: {
+            kind: "replace_text",
+            find_text: "a",
+            replace_text: "b"
+          }
+        }
+      })
+    );
+    const executionFailure = buildActionResult(
+      buildContractAction(workspace, {
+        input: {
+          target_path: "docs/missing.md",
+          change: {
+            kind: "replace_text",
+            find_text: "a",
+            replace_text: "b"
+          }
+        }
+      })
+    );
+
+    expect(policyRefusal.errorMessage).toBe("path_outside_boundary");
+    expect(policyRefusal.output).toMatchObject({
+      policy_violation: {
+        code: "path_outside_boundary"
+      }
+    });
+    expect(executionFailure.errorMessage).toBe("target_file_missing");
+    expect(executionFailure.output).toMatchObject({
+      execution_failure: {
+        code: "target_file_missing"
       }
     });
   });
@@ -315,4 +447,3 @@ describe("build-action-result contract", () => {
     ).toBe(false);
   });
 });
-

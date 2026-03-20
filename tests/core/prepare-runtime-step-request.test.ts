@@ -14,6 +14,20 @@ describe("prepareRuntimeStepRequest", () => {
 
     expect(request).toBeDefined();
     expect(request?.kind).toBe("execute_actions");
+    expect(request?.request_ref).toEqual({
+      run_id: minimalAgentState.runId,
+      plan_id: minimalPlan.id,
+      task_id: "task-1",
+      request_kind: "execute_actions"
+    });
+    expect(request?.context).toMatchObject({
+      request_ref: {
+        run_id: minimalAgentState.runId,
+        plan_id: minimalPlan.id,
+        task_id: "task-1",
+        request_kind: "execute_actions"
+      }
+    });
   });
 
   it("returns undefined for terminal state", () => {

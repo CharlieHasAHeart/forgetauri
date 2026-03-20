@@ -1,3 +1,5 @@
+import { isEvidenceRefArray, type EvidenceRef } from "./evidence.js";
+
 // Protocol-layer standardized action result object; keep it serializable across boundaries.
 export const ACTION_RESULT_STATUSES = ["succeeded", "failed"] as const;
 
@@ -8,6 +10,7 @@ export interface ActionResult {
   actionName: string;
   output?: unknown;
   errorMessage?: string;
+  evidence_refs?: EvidenceRef[];
 }
 
 export function isActionResultStatus(value: unknown): value is ActionResultStatus {
@@ -25,12 +28,16 @@ export function isActionResult(value: unknown): value is ActionResult {
   const status = Reflect.get(value, "status");
   const actionName = Reflect.get(value, "actionName");
   const errorMessage = Reflect.get(value, "errorMessage");
+  const evidenceRefs = Reflect.get(value, "evidence_refs");
 
   if (!isActionResultStatus(status) || typeof actionName !== "string") {
     return false;
   }
 
-  return errorMessage === undefined || typeof errorMessage === "string";
+  return (
+    (errorMessage === undefined || typeof errorMessage === "string") &&
+    (evidenceRefs === undefined || isEvidenceRefArray(evidenceRefs))
+  );
 }
 
 export function isSuccessfulActionResult(result: ActionResult): boolean {

@@ -111,6 +111,7 @@ describe("kernel validation e2e - real capability path", () => {
     expect(absorbedTick.request?.kind).toBe("execute_actions");
     expect(absorbedTick.tickSummary).toMatchObject({
       progression: "continueable",
+      signal: "continue",
       resultKind: "action_results",
       requestKind: "execute_actions"
     });
@@ -121,10 +122,10 @@ describe("kernel validation e2e - real capability path", () => {
     const runtimeSummary = readCoreRuntimeSummary(absorbedTick.state);
     expect(runtimeSummary).toMatchObject({
       progression: "continueable",
+      signal: "continue",
       resultKind: "action_results",
       requestKind: "execute_actions"
     });
-    expect(runtimeSummary?.signal).toBeUndefined();
     expect(runtimeSummary?.holdReason).toBeUndefined();
     expect(runtimeSummary?.orchestration).toBeUndefined();
     expect(runtimeSummary?.failureSummary).toBeUndefined();
@@ -158,6 +159,7 @@ describe("kernel validation e2e - real capability path", () => {
     expect(absorbedTick.request).toBeUndefined();
     expect(absorbedTick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_because_non_terminal_failure",
       holdReason: "non_terminal_failure",
       orchestration: undefined,
       resultKind: "action_results",
@@ -168,16 +170,16 @@ describe("kernel validation e2e - real capability path", () => {
     const runtimeSummary = readCoreRuntimeSummary(absorbedTick.state);
     expect(runtimeSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_because_non_terminal_failure",
       holdReason: "non_terminal_failure",
       resultKind: "action_results",
       failureSummary: "1 action(s) failed"
     });
-    expect(runtimeSummary?.signal).toBeUndefined();
     expect(runtimeSummary?.orchestration).toBeUndefined();
     expect(runtimeSummary?.requestKind).toBeUndefined();
   });
 
-  it("covers real execution non-terminal failure for find_text miss", () => {
+  it("covers find_text miss escalation into review control path", () => {
     const bootstrap = bootstrapRuntimeContext();
     const { shellResult, absorbedTick } = executeRealCapabilityFromState(bootstrap.state, workspace, {
       input: {
@@ -202,13 +204,14 @@ describe("kernel validation e2e - real capability path", () => {
     });
 
     expect(absorbedTick.state.status).toBe("running");
-    expect(absorbedTick.request).toBeUndefined();
+    expect(absorbedTick.request?.kind).toBe("run_review");
     expect(absorbedTick.tickSummary).toMatchObject({
-      progression: "hold_current_task",
-      holdReason: "non_terminal_failure",
+      progression: "continueable",
+      signal: "review_required",
+      holdReason: undefined,
       orchestration: undefined,
       resultKind: "action_results",
-      requestKind: undefined,
+      requestKind: "run_review",
       failureSummary: "1 action(s) failed"
     });
   });
@@ -243,6 +246,7 @@ describe("kernel validation e2e - real capability path", () => {
     expect(terminalTick.request).toBeUndefined();
     expect(terminalTick.tickSummary).toMatchObject({
       progression: "terminal",
+      signal: "terminal_failure",
       holdReason: undefined,
       orchestration: undefined,
       resultKind: "action_results",
@@ -250,7 +254,7 @@ describe("kernel validation e2e - real capability path", () => {
       failureSummary: "forced terminal failure for kernel validation"
     });
     const terminalSummary = readCoreRuntimeSummary(terminalTick.state);
-    expect(terminalSummary?.signal).toBeUndefined();
+    expect(terminalSummary?.signal).toBe("terminal_failure");
   });
 
   it("preserves review continue semantics after real execution", () => {
@@ -277,12 +281,13 @@ describe("kernel validation e2e - real capability path", () => {
     expect(continueTick.request?.kind).toBe("execute_actions");
     expect(continueTick.tickSummary).toMatchObject({
       progression: "continueable",
+      signal: "continue",
       holdReason: undefined,
       orchestration: undefined,
       resultKind: "review_result",
       requestKind: "execute_actions"
     });
-    expect(readCoreRuntimeSummary(continueTick.state)?.signal).toBeUndefined();
+    expect(readCoreRuntimeSummary(continueTick.state)?.signal).toBe("continue");
   });
 
   it("preserves review repair waiting semantics after real execution", () => {
@@ -304,13 +309,14 @@ describe("kernel validation e2e - real capability path", () => {
     expect(repairTick.request).toBeUndefined();
     expect(repairTick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_for_repair",
       holdReason: "repair",
       orchestration: "waiting_for_repair",
       resultKind: "review_result",
       requestKind: undefined,
       failureSummary: "review_result requested repair"
     });
-    expect(readCoreRuntimeSummary(repairTick.state)?.signal).toBeUndefined();
+    expect(readCoreRuntimeSummary(repairTick.state)?.signal).toBe("hold_for_repair");
   });
 
   it("preserves review replan waiting semantics after real execution", () => {
@@ -332,13 +338,14 @@ describe("kernel validation e2e - real capability path", () => {
     expect(replanTick.request).toBeUndefined();
     expect(replanTick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_for_replan",
       holdReason: "replan",
       orchestration: "waiting_for_replan",
       resultKind: "review_result",
       requestKind: undefined,
       failureSummary: "review_result requested replan"
     });
-    expect(readCoreRuntimeSummary(replanTick.state)?.signal).toBeUndefined();
+    expect(readCoreRuntimeSummary(replanTick.state)?.signal).toBe("hold_for_replan");
   });
 
   it("preserves review stop terminal semantics after real execution", () => {
@@ -360,12 +367,15 @@ describe("kernel validation e2e - real capability path", () => {
     expect(stopTick.request).toBeUndefined();
     expect(stopTick.tickSummary).toMatchObject({
       progression: "terminal",
+      signal: "review_rejected_run_terminal",
       holdReason: undefined,
       orchestration: undefined,
       resultKind: "review_result",
       requestKind: undefined,
       failureSummary: "review_result requested stop (review_rejected_run_terminal)"
     });
-    expect(readCoreRuntimeSummary(stopTick.state)?.signal).toBeUndefined();
+    expect(readCoreRuntimeSummary(stopTick.state)?.signal).toBe(
+      "review_rejected_run_terminal"
+    );
   });
 });

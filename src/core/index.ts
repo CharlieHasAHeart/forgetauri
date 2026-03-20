@@ -13,3 +13,6 @@ export * from "./run-effect-cycle.js";
 export * from "./run-runtime-tick.js";
 export * from "./can-run-runtime-step.js";
 export * from "./prepare-runtime-step-request.js";
+export * from "./review-gate.js";
+export * from "./read-recoverable-runtime-state.js";
+export * from "./restore-runtime-state.js";

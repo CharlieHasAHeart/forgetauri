@@ -1,3 +1,5 @@
+import { isRequestRef, type RequestRef } from "./request-ref.js";
+
 // Protocol-layer standardized effect request object; keep it serializable across boundaries.
 export const EFFECT_REQUEST_KINDS = ["execute_actions", "run_review"] as const;
 
@@ -6,6 +8,7 @@ export type EffectRequestKind = (typeof EFFECT_REQUEST_KINDS)[number];
 export interface EffectRequest {
   kind: EffectRequestKind;
   payload: unknown;
+  request_ref?: RequestRef;
   context?: unknown;
 }
 
@@ -21,6 +24,11 @@ export function isEffectRequest(value: unknown): value is EffectRequest {
   }
 
   const kind = Reflect.get(value, "kind");
+  const requestRef = Reflect.get(value, "request_ref");
 
-  return isEffectRequestKind(kind) && Reflect.has(value, "payload");
+  return (
+    isEffectRequestKind(kind) &&
+    Reflect.has(value, "payload") &&
+    (requestRef === undefined || isRequestRef(requestRef))
+  );
 }

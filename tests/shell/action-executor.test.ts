@@ -135,6 +135,25 @@ describe("action-executor", () => {
     });
   });
 
+  it("treats policy-refused input as executable and normalizes it to failed ActionResult", () => {
+    const policyRefusedAction = buildCapabilityAction(workspace, {
+      input: {
+        target_path: "scripts/notes.md",
+        change: {
+          kind: "replace_text",
+          find_text: "a",
+          replace_text: "b"
+        }
+      }
+    });
+
+    expect(canExecuteAction(policyRefusedAction)).toBe(true);
+    expect(executeAction(policyRefusedAction)).toMatchObject({
+      status: "failed",
+      errorMessage: "path_outside_boundary"
+    });
+  });
+
   it("returns current implementation behavior for canExecuteActions([])", () => {
     expect(canExecuteActions([])).toBe(true);
   });

@@ -72,10 +72,28 @@ export interface ControlledSingleFileTextModificationExecutionFailure {
   evidence: ControlledSingleFileTextModificationEvidence;
 }
 
+export const CONTROLLED_SINGLE_FILE_TEXT_MODIFICATION_POLICY_VIOLATION_CODES = [
+  "path_outside_boundary",
+  "disallowed_file_type"
+] as const;
+
+export type ControlledSingleFileTextModificationPolicyViolationCode =
+  (typeof CONTROLLED_SINGLE_FILE_TEXT_MODIFICATION_POLICY_VIOLATION_CODES)[number];
+
+export interface ControlledSingleFileTextModificationPolicyViolation {
+  applied: false;
+  policy_violation: {
+    code: ControlledSingleFileTextModificationPolicyViolationCode;
+    summary: string;
+  };
+  evidence: ControlledSingleFileTextModificationEvidence;
+}
+
 export type ControlledSingleFileTextModificationActionOutput =
   | ControlledSingleFileTextModificationSuccess
   | ControlledSingleFileTextModificationFailure
-  | ControlledSingleFileTextModificationExecutionFailure;
+  | ControlledSingleFileTextModificationExecutionFailure
+  | ControlledSingleFileTextModificationPolicyViolation;
 
 export type ControlledSingleFileTextModificationValidation =
   | { accepted: true; input: ControlledSingleFileTextModificationInput }
@@ -267,4 +285,15 @@ export function buildControlledSingleFileTextModificationExecutionFailureSummary
   }
 
   return `execution_failed: failed to write ${targetPath}`;
+}
+
+export function buildControlledSingleFileTextModificationPolicyViolationSummary(
+  code: ControlledSingleFileTextModificationPolicyViolationCode,
+  targetPath: string
+): string {
+  if (code === "path_outside_boundary") {
+    return `policy_refused: target path outside allowed boundary (${targetPath})`;
+  }
+
+  return `policy_refused: target file type is not allowed by policy (${targetPath})`;
 }

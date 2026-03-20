@@ -7,6 +7,7 @@ import {
   type Task
 } from "../protocol/index.js";
 import { prepareEffectCycle } from "./run-effect-cycle.js";
+import { maybeBuildReviewGateRequest } from "./review-gate.js";
 import { isAgentStateTerminal } from "./terminal.js";
 
 export type RuntimeStepRequestOrchestrationState =
@@ -50,6 +51,14 @@ export function canPrepareRuntimeStepRequestAfterResult(
     return true;
   }
 
+  if (result.kind === "repair_recovery") {
+    return result.payload.status === "recovered";
+  }
+
+  if (result.kind === "replan_recovery") {
+    return result.payload.status === "recovered";
+  }
+
   const nextAction = result.payload.next_action;
 
   if (nextAction === "continue") {
@@ -89,6 +98,11 @@ export function prepareRuntimeStepRequest(
 
   if (!canPrepareRuntimeStepRequestAfterResult(result)) {
     return undefined;
+  }
+
+  const reviewGateRequest = maybeBuildReviewGateRequest(state, plan, tasks, result);
+  if (reviewGateRequest) {
+    return reviewGateRequest;
   }
 
   return prepareEffectCycle(state, plan, tasks);

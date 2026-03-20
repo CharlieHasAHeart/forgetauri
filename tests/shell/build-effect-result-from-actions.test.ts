@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { type Action, type EffectRequest } from "../../src/protocol/index.ts";
+import { type Action, type ActionResult, type EffectRequest } from "../../src/protocol/index.ts";
 import { buildActionResult } from "../../src/shell/build-action-result.ts";
 import {
   areAllActionResultsSuccessful,
@@ -163,6 +163,91 @@ describe("build-effect-result-from-actions", () => {
         source: "shell",
         terminal: false,
         message: "execution_failed: target file not found (docs/missing.md)",
+        summary: "1 action(s) failed"
+      }
+    });
+  });
+
+  it("prefers evidence ref summary and propagates stable request_ref across result/failure/context", () => {
+    const requestWithRef: EffectRequest = {
+      kind: "execute_actions",
+      request_ref: {
+        run_id: "run-1",
+        plan_id: "plan-1",
+        task_id: "task-1",
+        request_kind: "execute_actions"
+      },
+      payload: {}
+    };
+    const failedFromRef: ActionResult = {
+      status: "failed",
+      actionName: "controlled_single_file_text_modification",
+      errorMessage: "path_outside_boundary",
+      output: {
+        // keep an intentionally noisy payload to verify aggregation no longer depends on it first.
+        policy_violation: {
+          code: "path_outside_boundary",
+          summary: "noisy embedded payload summary"
+        }
+      },
+      evidence_refs: [
+        {
+          kind: "capability",
+          source: "shell",
+          outcome: "policy_violation",
+          capability: "controlled_single_file_text_modification",
+          targetPath: "scripts/outside.md",
+          code: "path_outside_boundary",
+          summary: "policy_refused: target path outside allowed boundary (scripts/outside.md)"
+        }
+      ]
+    };
+
+    const effectResult = buildEffectResultFromActionResults(requestWithRef, [failedFromRef]);
+
+    expect(effectResult).toMatchObject({
+      kind: "action_results",
+      success: false,
+      request_ref: requestWithRef.request_ref,
+      context: {
+        requestKind: "execute_actions",
+        request_ref: requestWithRef.request_ref,
+        handled: true
+      },
+      failure_signal: {
+        message: "policy_refused: target path outside allowed boundary (scripts/outside.md)",
+        request_ref: requestWithRef.request_ref,
+        summary: "1 action(s) failed"
+      }
+    });
+  });
+
+  it("buildEffectResultFromActionResults normalizes policy violation into failure_signal", () => {
+    const results = [
+      buildActionResult(
+        buildCapabilityAction(workspace, {
+          input: {
+            target_path: "scripts/outside.md",
+            change: {
+              kind: "replace_text",
+              find_text: "a",
+              replace_text: "b"
+            }
+          }
+        })
+      )
+    ];
+
+    const effectResult = buildEffectResultFromActionResults(validRequest, results);
+
+    expect(effectResult).toMatchObject({
+      kind: "action_results",
+      success: false,
+      failure_signal: {
+        category: "action",
+        source: "shell",
+        terminal: false,
+        message: "policy_refused: target path outside allowed boundary (scripts/outside.md)",
         summary: "1 action(s) failed"
       }
     });

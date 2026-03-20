@@ -267,13 +267,18 @@ describe("applyRuntimeStepResult", () => {
       lastEffectResultKind: direct.lastEffectResultKind
     });
     const directSummary = (
-      direct.failure as { runtimeSummary?: { progression?: string; resultKind?: string } } | undefined
+      direct.failure as {
+        runtimeSummary?: { progression?: string; signal?: string; resultKind?: string };
+      } | undefined
     )?.runtimeSummary;
     const tickSummary = (
-      fromTick.failure as { runtimeSummary?: { progression?: string; resultKind?: string } } | undefined
+      fromTick.failure as {
+        runtimeSummary?: { progression?: string; signal?: string; resultKind?: string };
+      } | undefined
     )?.runtimeSummary;
     expect(tickSummary).toMatchObject({
       progression: directSummary?.progression,
+      signal: directSummary?.signal,
       resultKind: directSummary?.resultKind
     });
     expect(
@@ -307,16 +312,27 @@ describe("applyRuntimeStepResult", () => {
     });
     const directSummary = (
       direct.failure as {
-        runtimeSummary?: { progression?: string; resultKind?: string; failureSummary?: string };
+        runtimeSummary?: {
+          progression?: string;
+          signal?: string;
+          resultKind?: string;
+          failureSummary?: string;
+        };
       } | undefined
     )?.runtimeSummary;
     const tickSummary = (
       fromTick.failure as {
-        runtimeSummary?: { progression?: string; resultKind?: string; failureSummary?: string };
+        runtimeSummary?: {
+          progression?: string;
+          signal?: string;
+          resultKind?: string;
+          failureSummary?: string;
+        };
       } | undefined
     )?.runtimeSummary;
     expect(tickSummary).toMatchObject({
       progression: directSummary?.progression,
+      signal: directSummary?.signal,
       resultKind: directSummary?.resultKind,
       failureSummary: directSummary?.failureSummary
     });

@@ -17,7 +17,9 @@ export function buildUnsupportedEffectResult(request: EffectRequest): EffectResu
       reason: "unsupported_effect_request",
       requestKind: request.kind
     },
+    ...(request.request_ref ? { request_ref: request.request_ref } : {}),
     context: {
+      ...(request.request_ref ? { request_ref: request.request_ref } : {}),
       handled: false
     }
   };

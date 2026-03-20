@@ -35,6 +35,7 @@ describe("runRuntimeTick", () => {
       progression: "continueable",
       requestKind: "execute_actions"
     });
+    expect(tick.tickSummary.signal).toBeUndefined();
     expect(tick.tickSummary.orchestration).toBeUndefined();
     expect(tick.state.failure).toBeUndefined();
   });
@@ -59,6 +60,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request?.kind).toBe("execute_actions");
     expect(tick.tickSummary).toMatchObject({
       progression: "continueable",
+      signal: "continue",
       resultKind: "action_results",
       requestKind: "execute_actions"
     });
@@ -98,6 +100,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_because_non_terminal_failure",
       holdReason: "non_terminal_failure",
       orchestration: undefined,
       resultKind: "action_results",
@@ -138,6 +141,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "terminal",
+      signal: "terminal_failure",
       orchestration: undefined,
       resultKind: "action_results",
       failureSummary: "fatal action failure"
@@ -171,6 +175,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request?.kind).toBe("execute_actions");
     expect(tick.tickSummary).toMatchObject({
       progression: "continueable",
+      signal: "continue",
       resultKind: "review_result",
       requestKind: "execute_actions"
     });
@@ -207,6 +212,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_for_repair",
       holdReason: "repair",
       orchestration: "waiting_for_repair",
       resultKind: "review_result",
@@ -243,6 +249,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_for_replan",
       holdReason: "replan",
       orchestration: "waiting_for_replan",
       resultKind: "review_result",
@@ -279,6 +286,7 @@ describe("runRuntimeTick", () => {
     expect(tick.request).toBeUndefined();
     expect(tick.tickSummary).toMatchObject({
       progression: "terminal",
+      signal: "review_rejected_run_terminal",
       orchestration: undefined,
       resultKind: "review_result",
       failureSummary: "review_result requested stop (review_rejected_run_terminal)"
@@ -306,6 +314,7 @@ describe("runRuntimeTick", () => {
     expect(secondTick.request).toBeUndefined();
     expect(secondTick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_for_repair",
       holdReason: "repair",
       orchestration: "waiting_for_repair",
       resultKind: "review_result",
@@ -333,6 +342,7 @@ describe("runRuntimeTick", () => {
     expect(secondTick.request).toBeUndefined();
     expect(secondTick.tickSummary).toMatchObject({
       progression: "hold_current_task",
+      signal: "hold_for_replan",
       holdReason: "replan",
       orchestration: "waiting_for_replan",
       resultKind: "review_result",

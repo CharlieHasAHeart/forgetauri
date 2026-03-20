@@ -2,9 +2,11 @@ import {
   isEffectRequest,
   isPlan,
   isTask,
+  type ReviewNextAction,
   type AgentState,
   type EffectRequest,
   type Plan,
+  type RequestRef,
   type Task
 } from "../protocol/index.js";
 import { selectNextTask } from "./select-next-task.js";
@@ -29,12 +31,61 @@ export function buildExecuteActionsRequest(
   plan: Plan,
   task: Task
 ): EffectRequest {
+  const requestRef: RequestRef = {
+    run_id: state.runId,
+    plan_id: plan.id,
+    task_id: task.id,
+    request_kind: "execute_actions"
+  };
+
   return {
     kind: "execute_actions",
     payload: buildTaskEffectPayload(state, plan, task),
+    request_ref: requestRef,
     context: {
       currentTaskId: task.id,
-      planId: plan.id
+      planId: plan.id,
+      request_ref: requestRef
+    }
+  };
+}
+
+export type ReviewGateSource = "pre_execution" | "failure_escalation";
+
+export function buildRunReviewRequest(
+  state: AgentState,
+  plan: Plan,
+  task: Task,
+  source: ReviewGateSource,
+  summary: string,
+  decisionOverride?: ReviewNextAction
+): EffectRequest {
+  const requestRef: RequestRef = {
+    run_id: state.runId,
+    plan_id: plan.id,
+    task_id: task.id,
+    request_kind: "run_review"
+  };
+
+  return {
+    kind: "run_review",
+    payload: {
+      review_request: {
+        kind: "task",
+        target: task.id,
+        summary
+      },
+      gate: {
+        source,
+        capability: "controlled_single_file_text_modification"
+      },
+      decision_override: decisionOverride
+    },
+    request_ref: requestRef,
+    context: {
+      currentTaskId: task.id,
+      planId: plan.id,
+      request_ref: requestRef
     }
   };
 }

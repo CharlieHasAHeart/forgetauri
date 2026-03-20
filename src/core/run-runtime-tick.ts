@@ -11,6 +11,7 @@ import {
   readCoreRuntimeSummary,
   resolveRuntimeStepProgression,
   type CoreRuntimeSummary,
+  type RuntimeStepSignal,
   type RuntimeStepProgression,
   writeCoreRuntimeSummary
 } from "./apply-runtime-step-result.js";
@@ -33,6 +34,7 @@ export type RuntimeTickProgression = RuntimeStepProgression;
 
 export interface RuntimeTickSummary {
   progression: RuntimeTickProgression;
+  signal?: RuntimeStepSignal;
   holdReason?: string;
   orchestration?: string;
   resultKind?: string;
@@ -108,6 +110,7 @@ export function buildRuntimeTickSummary(
 
   return {
     progression: shared?.progression ?? progression,
+    signal: shared?.signal,
     holdReason: shared?.holdReason,
     orchestration: shared?.orchestration,
     resultKind: shared?.resultKind,
@@ -128,6 +131,7 @@ export function applyRuntimeTickRequestSummary(
 
   const summary: CoreRuntimeSummary = {
     progression: shared?.progression ?? progression,
+    signal: shared?.signal,
     holdReason: shared?.holdReason,
     orchestration: shared?.orchestration,
     resultKind: shared?.resultKind,

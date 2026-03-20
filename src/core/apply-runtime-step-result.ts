@@ -7,6 +7,7 @@ import {
   type Task
 } from "../protocol/index.js";
 import { canRunEffectCycle, runEffectCycle } from "./run-effect-cycle.js";
+import { isReviewEscalationFailureResult } from "./review-gate.js";
 import { isAgentStateTerminal } from "./terminal.js";
 import { cloneAgentState } from "./transition-engine.js";
 
@@ -15,9 +16,14 @@ export type RuntimeStepHoldReason = "repair" | "replan" | "non_terminal_failure"
 export type RuntimeStepOrchestrationState = "waiting_for_repair" | "waiting_for_replan";
 export type RuntimeStepSignal =
   | "continue"
+  | "repair_recovered"
+  | "repair_recovery_failed"
+  | "replan_recovered"
+  | "replan_recovery_failed"
   | "hold_for_repair"
   | "hold_for_replan"
   | "review_rejected_run_terminal"
+  | "review_required"
   | "continue_after_failure"
   | "hold_because_non_terminal_failure"
   | "terminal_failure";
@@ -62,9 +68,14 @@ export function readCoreRuntimeSummary(state: AgentState): CoreRuntimeSummary | 
     progression,
     signal:
       signal === "continue" ||
+      signal === "repair_recovered" ||
+      signal === "repair_recovery_failed" ||
+      signal === "replan_recovered" ||
+      signal === "replan_recovery_failed" ||
       signal === "hold_for_repair" ||
       signal === "hold_for_replan" ||
       signal === "review_rejected_run_terminal" ||
+      signal === "review_required" ||
       signal === "continue_after_failure" ||
       signal === "hold_because_non_terminal_failure" ||
       signal === "terminal_failure"
@@ -106,6 +117,18 @@ export function extractStepFailureSummary(
   state: AgentState,
   result: EffectResult
 ): string | undefined {
+  if (result.kind === "repair_recovery") {
+    if (typeof result.payload.summary === "string") {
+      return result.payload.summary;
+    }
+  }
+
+  if (result.kind === "replan_recovery") {
+    if (typeof result.payload.summary === "string") {
+      return result.payload.summary;
+    }
+  }
+
   if (hasEffectResultFailureSignal(result)) {
     return result.failure_signal.summary ?? result.failure_signal.message;
   }
@@ -151,6 +174,30 @@ export function resolveRuntimeStepSignal(
   result: EffectResult,
   progression: RuntimeStepProgression
 ): RuntimeStepSignal {
+  if (result.kind === "repair_recovery") {
+    if (result.payload.status === "recovered") {
+      return "repair_recovered";
+    }
+
+    if (progression === "terminal") {
+      return "terminal_failure";
+    }
+
+    return "repair_recovery_failed";
+  }
+
+  if (result.kind === "replan_recovery") {
+    if (result.payload.status === "recovered") {
+      return "replan_recovered";
+    }
+
+    if (progression === "terminal") {
+      return "terminal_failure";
+    }
+
+    return "replan_recovery_failed";
+  }
+
   if (result.kind === "review_result") {
     if (result.payload.next_action === "continue") {
       return "continue";
@@ -169,6 +216,10 @@ export function resolveRuntimeStepSignal(
 
   if (result.success) {
     return "continue";
+  }
+
+  if (isReviewEscalationFailureResult(result)) {
+    return "review_required";
   }
 
   if (progression === "terminal") {
@@ -190,6 +241,14 @@ export function resolveRuntimeStepHoldReason(
     return undefined;
   }
 
+  if (result.kind === "repair_recovery") {
+    return "repair";
+  }
+
+  if (result.kind === "replan_recovery") {
+    return "replan";
+  }
+
   if (result.kind === "review_result") {
     if (result.payload.next_action === "repair") {
       return "repair";
@@ -207,7 +266,19 @@ export function resolveRuntimeStepOrchestrationState(
   result: EffectResult,
   progression: RuntimeStepProgression
 ): RuntimeStepOrchestrationState | undefined {
-  if (progression !== "hold_current_task" || result.kind !== "review_result") {
+  if (progression !== "hold_current_task") {
+    return undefined;
+  }
+
+  if (result.kind === "repair_recovery" && result.payload.status === "failed") {
+    return "waiting_for_repair";
+  }
+
+  if (result.kind === "replan_recovery" && result.payload.status === "failed") {
+    return "waiting_for_replan";
+  }
+
+  if (result.kind !== "review_result") {
     return undefined;
   }
 
@@ -229,6 +300,30 @@ export function resolveRuntimeStepProgression(
     return "continueable";
   }
 
+  if (result.kind === "repair_recovery") {
+    if (result.payload.status === "recovered") {
+      return "continueable";
+    }
+
+    if (hasEffectResultFailureSignal(result) && result.failure_signal.terminal) {
+      return "terminal";
+    }
+
+    return "hold_current_task";
+  }
+
+  if (result.kind === "replan_recovery") {
+    if (result.payload.status === "recovered") {
+      return "continueable";
+    }
+
+    if (hasEffectResultFailureSignal(result) && result.failure_signal.terminal) {
+      return "terminal";
+    }
+
+    return "hold_current_task";
+  }
+
   if (result.kind === "review_result") {
     if (result.payload.next_action === "stop") {
       return "terminal";
@@ -246,6 +341,10 @@ export function resolveRuntimeStepProgression(
   }
 
   if (result.success) {
+    return "continueable";
+  }
+
+  if (isReviewEscalationFailureResult(result)) {
     return "continueable";
   }
 

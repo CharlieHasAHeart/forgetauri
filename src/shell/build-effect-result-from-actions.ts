@@ -4,6 +4,7 @@ import {
   isSuccessfulActionResult,
   type Action,
   type ActionResult,
+  type EvidenceRef,
   type EffectRequest,
   type EffectResult,
   type FailureSignal
@@ -61,9 +62,25 @@ export function buildFailureSignalFromActionResults(
     typeof executionFailure === "object" && executionFailure !== null
       ? Reflect.get(executionFailure, "summary")
       : undefined;
+  const policyViolation =
+    typeof firstFailure.output === "object" && firstFailure.output !== null
+      ? Reflect.get(firstFailure.output, "policy_violation")
+      : undefined;
+  const policySummary =
+    typeof policyViolation === "object" && policyViolation !== null
+      ? Reflect.get(policyViolation, "summary")
+      : undefined;
+  const firstFailureEvidenceRefs = Array.isArray(firstFailure.evidence_refs)
+    ? firstFailure.evidence_refs
+    : undefined;
+  const evidenceSummary = firstFailureEvidenceRefs?.[0]?.summary;
   const normalizedMessage =
-    typeof refusalSummary === "string"
+    typeof evidenceSummary === "string"
+      ? evidenceSummary
+      : typeof refusalSummary === "string"
       ? refusalSummary
+      : typeof policySummary === "string"
+        ? policySummary
       : typeof executionSummary === "string"
         ? executionSummary
       : firstFailure.errorMessage ?? "action_execution_failed";
@@ -73,8 +90,36 @@ export function buildFailureSignalFromActionResults(
     source: "shell",
     terminal: false,
     message: normalizedMessage,
-    summary: `${failedResults.length} action(s) failed`
+    summary: `${failedResults.length} action(s) failed`,
+    evidence_refs: firstFailureEvidenceRefs
   };
+}
+
+function buildEffectResultEvidenceRefs(
+  request: EffectRequest,
+  success: boolean,
+  results: ActionResult[]
+): EvidenceRef[] {
+  const firstActionResult = results[0];
+  const firstActionEvidenceRef =
+    firstActionResult && Array.isArray(firstActionResult.evidence_refs)
+      ? firstActionResult.evidence_refs[0]
+      : undefined;
+
+  return [
+    {
+      kind: "effect",
+      source: "shell",
+      outcome: success ? "action_results_succeeded" : "action_results_failed",
+      requestKind: request.kind,
+      actionName: firstActionResult?.actionName,
+      capability: firstActionEvidenceRef?.capability,
+      targetPath: firstActionEvidenceRef?.targetPath,
+      summary: success
+        ? `${results.length} action(s) succeeded`
+        : `${results.length} action(s) processed with failure`
+    }
+  ];
 }
 
 export function buildEffectResultFromActionResults(
@@ -85,14 +130,24 @@ export function buildEffectResultFromActionResults(
   const failureSignal = success
     ? undefined
     : buildFailureSignalFromActionResults(results);
+  const requestRef = request.request_ref;
+  const normalizedFailureSignal =
+    failureSignal === undefined
+      ? undefined
+      : requestRef
+        ? { ...failureSignal, request_ref: requestRef }
+        : failureSignal;
 
   return {
     kind: "action_results",
     success,
-    failure_signal: failureSignal,
+    failure_signal: normalizedFailureSignal,
+    evidence_refs: buildEffectResultEvidenceRefs(request, success, results),
+    ...(requestRef ? { request_ref: requestRef } : {}),
     payload: buildActionResultsPayload(results),
     context: {
       requestKind: request.kind,
+      ...(requestRef ? { request_ref: requestRef } : {}),
       handled: true
     }
   };

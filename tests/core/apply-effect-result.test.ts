@@ -205,4 +205,34 @@ describe("applyEffectResult", () => {
     });
     expect(signal).toBe("review_rejected_run_terminal");
   });
+
+  it("preserves minimal recovery-failure evidence when repair recovery fails", () => {
+    const state = makeAgentState({ status: "running", currentTaskId: "task-1" });
+    const result: EffectResult = {
+      kind: "repair_recovery",
+      success: false,
+      payload: {
+        status: "failed",
+        summary: "repair failed"
+      }
+    };
+
+    const next = applyEffectResult(state, result);
+
+    expect(next).toMatchObject({
+      status: "running",
+      failure: {
+        category: "runtime",
+        source: "core",
+        terminal: false,
+        evidence_refs: [
+          {
+            kind: "recovery",
+            source: "core",
+            outcome: "repair_failed"
+          }
+        ]
+      }
+    });
+  });
 });
