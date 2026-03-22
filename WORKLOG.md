@@ -993,3 +993,28 @@ Recommended entry structure:
 ### Result
 
 - repository now has a concrete Stage 7.1 scenario contract that pressures the existing kernel through current capabilities and governance surfaces while preventing scenario-driven semantic leakage
+
+---
+
+## 2026-03-22 20:33 — stage 7.2 first validating scenario end-to-end validation added
+
+### Changed
+
+- added `tests/core/first-validating-scenario.e2e.test.ts`
+- implemented Stage 7.2 scenario validation for **Controlled Docs Maintenance Validation Scenario**
+- covered three scenario-shaped paths on the existing kernel path:
+  - normal bounded success (`directory_list -> file_read -> single_file_modification`)
+  - governance/policy constrained path with review-observable escalation
+  - failure/recovery path (`find_text` miss -> review repair -> repair recovery re-entry)
+
+### Scope
+
+- stage 7.2 test validation only
+- no core/shell/protocol semantic expansion
+- no new capability and no second execution model
+
+### Result
+
+- scenario e2e pressure is now validated through existing capability/policy/review/failure/runtimeSummary surfaces
+- bounded docs/architecture markdown workflow is verified without semantic leakage
+- local full test suite passes (`33/33` files, `255/255` tests)
