@@ -973,3 +973,23 @@ Recommended entry structure:
   - `tests/core/multi-capability-consistency.test.ts`
   - `tests/shell/second-capability-text-read.test.ts`
   - `tests/shell/third-capability-directory-text-list.test.ts`
+
+---
+
+## 2026-03-22 20:26 — stage 7.1 first validating scenario contract defined
+
+### Changed
+
+- added `docs/architecture/08-first_validating_scenario_contract.md`
+- defined one narrow validating scenario: **Controlled Docs Maintenance Validation Scenario**
+- documented target stack, workflow boundary, expected capability usage, review/approval expectations, artifact expectations, non-goals, and containment notes
+
+### Scope
+
+- stage 7.1 contract definition
+- docs only
+- no runtime semantic or execution-model expansion
+
+### Result
+
+- repository now has a concrete Stage 7.1 scenario contract that pressures the existing kernel through current capabilities and governance surfaces while preventing scenario-driven semantic leakage
